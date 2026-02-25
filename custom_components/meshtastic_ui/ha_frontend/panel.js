@@ -42,6 +42,8 @@ class MeshtasticUiPanel extends LitElement {
       _unreadCounts: { type: Object },
       _notificationPrefs: { type: Object },
       _showNotificationModal: { type: Boolean },
+      _nodeDialogId: { type: String },
+      _nodeDialogFeedback: { type: String },
     };
   }
 
@@ -66,6 +68,8 @@ class MeshtasticUiPanel extends LitElement {
     this._unreadCounts = JSON.parse(localStorage.getItem("meshtastic_unread") || "{}");
     this._notificationPrefs = { enabled: false, service: "notify.notify", filter: "all" };
     this._showNotificationModal = false;
+    this._nodeDialogId = null;
+    this._nodeDialogFeedback = "";
     this._timeSeries = {
       channelUtil: new Float64Array(150),
       airtimeTx: new Float64Array(150),
@@ -382,12 +386,17 @@ class MeshtasticUiPanel extends LitElement {
     const { action, nodeId } = e.detail;
     const nodesTab = this.shadowRoot.querySelector("mesh-nodes-tab");
 
-    if (action === "send-message") {
+    if (action === "view-node") {
+      this._nodeDialogId = nodeId;
+      this._nodeDialogFeedback = "";
+      return;
+    } else if (action === "send-message") {
       if (!this._dms.includes(nodeId)) {
         this._dms = [...this._dms, nodeId];
       }
       this._selectedConversation = nodeId;
       this._activeTab = "messages";
+      this._nodeDialogId = null;
       if (nodesTab) nodesTab.closeDialog();
     } else if (action === "trace-route") {
       // Set pending state before sending
@@ -452,6 +461,7 @@ class MeshtasticUiPanel extends LitElement {
         this._nodes = rest;
         this._favoriteNodes = this._favoriteNodes.filter((id) => id !== nodeId);
         this._ignoredNodes = this._ignoredNodes.filter((id) => id !== nodeId);
+        this._nodeDialogId = null;
         if (nodesTab) nodesTab.closeDialog();
       }
       if (nodesTab) nodesTab.showFeedback(result?.success ? "Node removed" : "Remove failed");
@@ -574,6 +584,72 @@ class MeshtasticUiPanel extends LitElement {
       }
       .notification-save:hover { opacity: 0.9; }
 
+      .node-dialog-backdrop {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 2000;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .node-dialog-card {
+        background: var(--card-background-color); border-radius: 12px;
+        width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      }
+      .node-dialog-header {
+        display: flex; align-items: center; padding: 16px 20px;
+        border-bottom: 1px solid var(--divider-color);
+      }
+      .node-dialog-header .title { flex: 1; font-size: 16px; font-weight: 600; }
+      .node-dialog-header .close {
+        background: none; border: none; font-size: 22px;
+        cursor: pointer; color: var(--secondary-text-color);
+      }
+      .node-dialog-body { padding: 16px 20px; }
+      .node-dialog-section { margin-bottom: 16px; }
+      .nd-section-title {
+        font-size: 12px; font-weight: 600; text-transform: uppercase;
+        color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 8px;
+      }
+      .nd-metrics {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;
+      }
+      .nd-metric-label { font-size: 12px; color: var(--secondary-text-color); }
+      .nd-metric-value { font-size: 18px; font-weight: 600; }
+      .node-dialog-actions {
+        display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 16px;
+        border-top: 1px solid var(--divider-color);
+      }
+      .nd-btn {
+        padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+        cursor: pointer; border: 1px solid var(--divider-color);
+        background: var(--card-background-color); color: var(--primary-text-color);
+        display: flex; align-items: center; gap: 6px;
+      }
+      .nd-btn:hover { opacity: 0.85; }
+      .nd-btn.primary { background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color); }
+      .nd-btn.danger { background: var(--error-color, #f44336); color: #fff; border-color: transparent; }
+      .nd-fav {
+        cursor: pointer; font-size: 22px; margin-right: 8px;
+        color: var(--secondary-text-color); transition: color 0.15s;
+      }
+      .nd-fav.active { color: #ffc107; }
+      .nd-fav:hover { color: #ffb300; }
+      .nd-ign-badge {
+        display: inline-block; padding: 1px 6px; border-radius: 8px;
+        font-size: 10px; font-weight: 600; background: var(--error-color, #f44336);
+        color: #fff; margin-left: 8px; vertical-align: middle;
+      }
+      .nd-feedback {
+        padding: 8px 16px; font-size: 13px; color: var(--primary-color); font-weight: 500;
+      }
+      .spinner {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid var(--divider-color);
+        border-top-color: var(--primary-color);
+        border-radius: 50%; animation: spin 0.8s linear infinite;
+        vertical-align: middle;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
       .traceroute-dialog {
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
         background: rgba(0,0,0,0.5); z-index: 2000;
@@ -663,6 +739,7 @@ class MeshtasticUiPanel extends LitElement {
       <div class="content">
         ${this._renderActiveTab()}
       </div>
+      ${this._nodeDialogId ? this._renderNodeDetailDialog() : ""}
       ${this._tracerouteDialog ? this._renderTracerouteDialog() : ""}
       ${this._showNotificationModal ? this._renderNotificationModal() : ""}
     `;
@@ -697,7 +774,7 @@ class MeshtasticUiPanel extends LitElement {
           ></mesh-nodes-tab>
         `;
       case "map":
-        return html`<mesh-map-tab .nodes=${this._nodes} .waypoints=${this._waypoints} .traceroutes=${this._traceroutes} .localNodeId=${this._localNodeId}></mesh-map-tab>`;
+        return html`<mesh-map-tab .nodes=${this._nodes} .waypoints=${this._waypoints} .traceroutes=${this._traceroutes} .localNodeId=${this._localNodeId} @node-action=${this._onNodeAction}></mesh-map-tab>`;
       case "settings":
         return html`
           <mesh-settings-tab
@@ -709,6 +786,147 @@ class MeshtasticUiPanel extends LitElement {
         return html``;
     }
   }
+  /* ── Node detail dialog (panel-level, used from map) ── */
+
+  _closeNodeDialog() {
+    this._nodeDialogId = null;
+    this._nodeDialogFeedback = "";
+  }
+
+  _showNodeDialogFeedback(text) {
+    this._nodeDialogFeedback = text;
+    setTimeout(() => { this._nodeDialogFeedback = ""; }, 3000);
+  }
+
+  _renderNodeDetailDialog() {
+    const nodeId = this._nodeDialogId;
+    const node = this._nodes[nodeId] || {};
+    const isFav = (this._favoriteNodes || []).includes(nodeId);
+    const isIgn = (this._ignoredNodes || []).includes(nodeId);
+
+    const metric = (label, value, suffix = "") => html`
+      <div>
+        <div class="nd-metric-label">${label}</div>
+        <div class="nd-metric-value">${value != null && value !== "" ? `${value}${suffix}` : "\u2014"}</div>
+      </div>
+    `;
+
+    const formatLastSeen = (iso) => {
+      if (!iso) return "Unknown";
+      try {
+        const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+        if (diff < 60) return "Just now";
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return `${Math.floor(diff / 86400)}d ago`;
+      } catch { return "Unknown"; }
+    };
+    const formatUptime = (s) => {
+      s = parseInt(s, 10);
+      if (isNaN(s)) return "\u2014";
+      if (s < 60) return `${s}s`;
+      if (s < 3600) return `${Math.floor(s / 60)}m`;
+      if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+      return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+    };
+
+    const onAction = (action) => {
+      if (action === "remove" && !confirm(`Remove node ${node.name || nodeId}?`)) return;
+      this._onNodeAction({ detail: { action, nodeId } });
+      if (action === "send-message" || action === "remove") return; // dialog closed by handler
+      if (["favorite", "unfavorite", "ignore", "unignore"].includes(action)) {
+        this._showNodeDialogFeedback(action === "favorite" ? "Added to favorites" : action === "unfavorite" ? "Removed from favorites" : action === "ignore" ? "Node ignored" : "Node unignored");
+      }
+    };
+
+    return html`
+      <div class="node-dialog-backdrop" @click=${(e) => { if (e.target.classList.contains("node-dialog-backdrop")) this._closeNodeDialog(); }}>
+        <div class="node-dialog-card">
+          <div class="node-dialog-header">
+            <span class="nd-fav ${isFav ? "active" : ""}"
+              @click=${() => onAction(isFav ? "unfavorite" : "favorite")}
+              title="${isFav ? "Remove from favorites" : "Add to favorites"}"
+            >${isFav ? "\u2605" : "\u2606"}</span>
+            <div class="title">${node.name || nodeId}${isIgn ? html`<span class="nd-ign-badge">IGNORED</span>` : ""}</div>
+            <button class="close" @click=${() => this._closeNodeDialog()}>\u00D7</button>
+          </div>
+          <div class="node-dialog-body">
+            <div class="node-dialog-section">
+              <div class="nd-section-title">Identity</div>
+              <div class="nd-metrics">
+                ${metric("Node ID", nodeId)}
+                ${metric("Short Name", node.short_name)}
+                ${metric("Long Name", node.name)}
+                ${metric("Hardware", node.hardware_model || node.model)}
+                ${metric("Last Seen", formatLastSeen(node._last_seen))}
+              </div>
+            </div>
+            <div class="node-dialog-section">
+              <div class="nd-section-title">Radio</div>
+              <div class="nd-metrics">
+                ${metric("SNR", node.snr, " dB")}
+                ${metric("RSSI", node.rssi, " dBm")}
+                ${metric("Hops", node.hops)}
+                ${metric("Air Util TX", node.air_util_tx, "%")}
+                ${metric("Ch. Util", node.channel_utilization, "%")}
+              </div>
+            </div>
+            <div class="node-dialog-section">
+              <div class="nd-section-title">Power</div>
+              <div class="nd-metrics">
+                ${metric("Battery", node.battery != null ? Math.min(node.battery, 100) : null, "%")}
+                ${metric("Voltage", node.voltage, " V")}
+                ${metric("Uptime", node.uptime ? formatUptime(node.uptime) : null)}
+              </div>
+            </div>
+            ${node.temperature != null || node.humidity != null || node.pressure != null ? html`
+              <div class="node-dialog-section">
+                <div class="nd-section-title">Environment</div>
+                <div class="nd-metrics">
+                  ${metric("Temperature", node.temperature, "\u00B0C")}
+                  ${metric("Humidity", node.humidity, "%")}
+                  ${metric("Pressure", node.pressure, " hPa")}
+                </div>
+              </div>
+            ` : ""}
+            ${node.latitude != null || node.longitude != null ? html`
+              <div class="node-dialog-section">
+                <div class="nd-section-title">Position</div>
+                <div class="nd-metrics">
+                  ${metric("Latitude", node.latitude)}
+                  ${metric("Longitude", node.longitude)}
+                  ${metric("Altitude", node.altitude, " m")}
+                </div>
+              </div>
+            ` : ""}
+          </div>
+          <div class="node-dialog-actions">
+            <button class="nd-btn primary" @click=${() => onAction("send-message")}>
+              <ha-icon icon="mdi:message-text" style="--mdc-icon-size:16px;"></ha-icon> Message
+            </button>
+            <button class="nd-btn"
+              ?disabled=${this._pendingTraceroute === nodeId}
+              @click=${() => onAction("trace-route")}>
+              ${this._pendingTraceroute === nodeId
+                ? html`<span class="spinner"></span> Tracing...`
+                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size:16px;"></ha-icon> Trace Route`}
+            </button>
+            <button class="nd-btn" @click=${() => onAction("request-position")}>
+              <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Position
+            </button>
+            <button class="nd-btn" @click=${() => onAction(isIgn ? "unignore" : "ignore")}>
+              <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size:16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
+            </button>
+            <button class="nd-btn danger" @click=${() => onAction("remove")}>
+              <ha-icon icon="mdi:delete" style="--mdc-icon-size:16px;"></ha-icon> Remove
+            </button>
+            ${this._nodeDialogFeedback ? html`<span class="nd-feedback">${this._nodeDialogFeedback}</span>` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   /* ── Traceroute dialog ── */
 
   _getNodeName(nodeId) {

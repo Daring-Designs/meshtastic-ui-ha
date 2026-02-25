@@ -1579,20 +1579,6 @@ export class MeshMapTab extends LitElement {
       if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
 
       const name = node.name || nodeId;
-      const lastSeen = formatLastSeen(node._last_seen);
-      const popupContent = `
-        <div style="min-width:160px;">
-          <strong style="font-size:14px;">${name}</strong>
-          <div style="font-size:11px;color:#888;margin-bottom:6px;">${nodeId}</div>
-          <table style="font-size:12px;border-collapse:collapse;width:100%;">
-            ${node.battery != null ? `<tr><td style="padding:1px 8px 1px 0;color:#888;">Battery</td><td>${Math.min(node.battery, 100)}%</td></tr>` : ""}
-            ${node.snr != null ? `<tr><td style="padding:1px 8px 1px 0;color:#888;">SNR</td><td>${node.snr} dB</td></tr>` : ""}
-            ${node.rssi != null ? `<tr><td style="padding:1px 8px 1px 0;color:#888;">RSSI</td><td>${node.rssi} dBm</td></tr>` : ""}
-            ${node.hops != null ? `<tr><td style="padding:1px 8px 1px 0;color:#888;">Hops</td><td>${node.hops}</td></tr>` : ""}
-            <tr><td style="padding:1px 8px 1px 0;color:#888;">Seen</td><td>${lastSeen}</td></tr>
-          </table>
-        </div>
-      `;
 
       // Use colored circle markers based on last-seen freshness
       const isRecent = node._last_seen && (Date.now() - new Date(node._last_seen).getTime()) < 3600000;
@@ -1603,7 +1589,7 @@ export class MeshMapTab extends LitElement {
         color: "#fff",
         weight: 2,
       });
-      marker.bindPopup(popupContent);
+      marker.on("click", () => this._fireNodeAction("view-node", nodeId));
       marker.bindTooltip(name, { permanent: false, direction: "top", offset: [0, -8] });
       this._nodeLayer.addLayer(marker);
       bounds.push([lat, lon]);
@@ -1760,9 +1746,9 @@ export class MeshMapTab extends LitElement {
     }
   }
 
-  _fireViewNode(nodeId) {
+  _fireNodeAction(action, nodeId) {
     this.dispatchEvent(
-      new CustomEvent("view-node", { detail: { nodeId }, bubbles: true, composed: true })
+      new CustomEvent("node-action", { detail: { action, nodeId }, bubbles: true, composed: true })
     );
   }
 }
