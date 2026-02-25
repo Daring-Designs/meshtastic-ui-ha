@@ -91,6 +91,13 @@ class MeshtasticUiPanel extends LitElement {
     this._tsIntervalId = setInterval(() => this._flushTimeSeries(), TS_FLUSH_MS);
   }
 
+  updated(changed) {
+    if (changed.has("hass") && this.hass && !this._unsubscribeFn) {
+      // hass wasn't available during connectedCallback — retry
+      this._loadData();
+    }
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
     this._unsubscribe();
