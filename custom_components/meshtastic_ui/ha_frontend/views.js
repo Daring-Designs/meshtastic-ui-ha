@@ -42,11 +42,19 @@ function formatUptime(seconds) {
   return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
 }
 
+function formatHardware(hw) {
+  if (!hw) return null;
+  return hw.replace(/_/g, " ").replace(/\b\w+/g, (w) =>
+    /^\d/.test(w) || w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  );
+}
+
 function renderMetric(label, value, suffix = "") {
+  const display = value != null && value !== "" ? `${value}${suffix}` : "\u2014";
   return html`
     <div class="metric-item">
       <div class="metric-label">${label}</div>
-      <div class="metric-value">${value != null && value !== "" ? `${value}${suffix}` : "\u2014"}</div>
+      <div class="metric-value" title="${display}">${display}</div>
     </div>
   `;
 }
@@ -91,6 +99,9 @@ const sharedStyles = css`
   .metric-value {
     font-size: 18px;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .badge {
     display: inline-block;
@@ -342,10 +353,10 @@ export class MeshRadioTab extends LitElement {
         <div class="gateway-section">
           <div class="section-title">Metrics</div>
           <div class="metrics-grid">
-            ${renderMetric("Battery", sensors.battery != null ? Math.min(sensors.battery, 100) : null, "%")}
-            ${renderMetric("Voltage", sensors.voltage, " V")}
-            ${renderMetric("Ch. Utilization", sensors.channel_utilization, "%")}
-            ${renderMetric("Airtime", sensors.air_util_tx || sensors.airtime, "%")}
+            ${renderMetric("Battery", sensors.battery != null ? Math.round(Math.min(sensors.battery, 100) * 100) / 100 : null, "%")}
+            ${renderMetric("Voltage", sensors.voltage != null ? Math.round(sensors.voltage * 100) / 100 : null, " V")}
+            ${renderMetric("Ch. Utilization", sensors.channel_utilization != null ? Math.round(sensors.channel_utilization * 100) / 100 : null, "%")}
+            ${renderMetric("Airtime", (sensors.air_util_tx || sensors.airtime) != null ? Math.round((sensors.air_util_tx || sensors.airtime) * 100) / 100 : null, "%")}
             ${renderMetric("Packets TX", sensors.packets_tx)}
             ${renderMetric("Packets RX", sensors.packets_rx)}
             ${renderMetric("Packets Bad", sensors.packets_bad)}
@@ -1146,25 +1157,25 @@ export class MeshNodesTab extends LitElement {
                 ${renderMetric("Node ID", nodeId)}
                 ${renderMetric("Short Name", node.short_name)}
                 ${renderMetric("Long Name", node.name)}
-                ${renderMetric("Hardware", node.hardware_model || node.model)}
+                ${renderMetric("Hardware", formatHardware(node.hardware_model || node.model))}
                 ${renderMetric("Last Seen", formatLastSeen(node._last_seen))}
               </div>
             </div>
             <div class="dialog-section">
               <div class="section-title">Radio</div>
               <div class="metrics-grid">
-                ${renderMetric("SNR", node.snr, " dB")}
-                ${renderMetric("RSSI", node.rssi, " dBm")}
+                ${renderMetric("SNR", node.snr != null ? Math.round(node.snr * 10) / 10 : null, " dB")}
+                ${renderMetric("RSSI", node.rssi != null ? Math.round(node.rssi) : null, " dBm")}
                 ${renderMetric("Hops", node.hops)}
-                ${renderMetric("Air Util TX", node.air_util_tx, "%")}
-                ${renderMetric("Ch. Util", node.channel_utilization, "%")}
+                ${renderMetric("Air Util TX", node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
+                ${renderMetric("Ch. Util", node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
               </div>
             </div>
             <div class="dialog-section">
               <div class="section-title">Power</div>
               <div class="metrics-grid">
-                ${renderMetric("Battery", node.battery != null ? Math.min(node.battery, 100) : null, "%")}
-                ${renderMetric("Voltage", node.voltage, " V")}
+                ${renderMetric("Battery", node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
+                ${renderMetric("Voltage", node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
                 ${renderMetric("Uptime", node.uptime ? formatUptime(node.uptime) : null)}
               </div>
             </div>
@@ -1172,9 +1183,9 @@ export class MeshNodesTab extends LitElement {
               <div class="dialog-section">
                 <div class="section-title">Environment</div>
                 <div class="metrics-grid">
-                  ${renderMetric("Temperature", node.temperature, "\u00B0C")}
-                  ${renderMetric("Humidity", node.humidity, "%")}
-                  ${renderMetric("Pressure", node.pressure, " hPa")}
+                  ${renderMetric("Temperature", node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
+                  ${renderMetric("Humidity", node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
+                  ${renderMetric("Pressure", node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
                 </div>
               </div>
             ` : ""}
@@ -1182,9 +1193,9 @@ export class MeshNodesTab extends LitElement {
               <div class="dialog-section">
                 <div class="section-title">Position</div>
                 <div class="metrics-grid">
-                  ${renderMetric("Latitude", node.latitude)}
-                  ${renderMetric("Longitude", node.longitude)}
-                  ${renderMetric("Altitude", node.altitude, " m")}
+                  ${renderMetric("Latitude", node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
+                  ${renderMetric("Longitude", node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
+                  ${renderMetric("Altitude", node.altitude != null ? Math.round(node.altitude) : null, " m")}
                 </div>
               </div>
             ` : ""}

@@ -606,7 +606,7 @@ class MeshtasticUiPanel extends LitElement {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px;
       }
       .nd-metric-label { font-size: 12px; color: var(--secondary-text-color); }
-      .nd-metric-value { font-size: 18px; font-weight: 600; }
+      .nd-metric-value { font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .node-dialog-actions {
         display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 16px;
         border-top: 1px solid var(--divider-color);
@@ -805,12 +805,22 @@ class MeshtasticUiPanel extends LitElement {
     const isFav = (this._favoriteNodes || []).includes(nodeId);
     const isIgn = (this._ignoredNodes || []).includes(nodeId);
 
-    const metric = (label, value, suffix = "") => html`
+    const metric = (label, value, suffix = "") => {
+      const display = value != null && value !== "" ? `${value}${suffix}` : "\u2014";
+      return html`
       <div>
         <div class="nd-metric-label">${label}</div>
-        <div class="nd-metric-value">${value != null && value !== "" ? `${value}${suffix}` : "\u2014"}</div>
+        <div class="nd-metric-value" title="${display}">${display}</div>
       </div>
     `;
+    };
+
+    const _fmtHw = (hw) => {
+      if (!hw) return null;
+      return hw.replace(/_/g, " ").replace(/\b\w+/g, (w) =>
+        /^\d/.test(w) || w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      );
+    };
 
     const formatLastSeen = (iso) => {
       if (!iso) return "Unknown";
@@ -858,25 +868,25 @@ class MeshtasticUiPanel extends LitElement {
                 ${metric("Node ID", nodeId)}
                 ${metric("Short Name", node.short_name)}
                 ${metric("Long Name", node.name)}
-                ${metric("Hardware", node.hardware_model || node.model)}
+                ${metric("Hardware", _fmtHw(node.hardware_model || node.model))}
                 ${metric("Last Seen", formatLastSeen(node._last_seen))}
               </div>
             </div>
             <div class="node-dialog-section">
               <div class="nd-section-title">Radio</div>
               <div class="nd-metrics">
-                ${metric("SNR", node.snr, " dB")}
-                ${metric("RSSI", node.rssi, " dBm")}
+                ${metric("SNR", node.snr != null ? Math.round(node.snr * 10) / 10 : null, " dB")}
+                ${metric("RSSI", node.rssi != null ? Math.round(node.rssi) : null, " dBm")}
                 ${metric("Hops", node.hops)}
-                ${metric("Air Util TX", node.air_util_tx, "%")}
-                ${metric("Ch. Util", node.channel_utilization, "%")}
+                ${metric("Air Util TX", node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
+                ${metric("Ch. Util", node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
               </div>
             </div>
             <div class="node-dialog-section">
               <div class="nd-section-title">Power</div>
               <div class="nd-metrics">
-                ${metric("Battery", node.battery != null ? Math.min(node.battery, 100) : null, "%")}
-                ${metric("Voltage", node.voltage, " V")}
+                ${metric("Battery", node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
+                ${metric("Voltage", node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
                 ${metric("Uptime", node.uptime ? formatUptime(node.uptime) : null)}
               </div>
             </div>
@@ -884,9 +894,9 @@ class MeshtasticUiPanel extends LitElement {
               <div class="node-dialog-section">
                 <div class="nd-section-title">Environment</div>
                 <div class="nd-metrics">
-                  ${metric("Temperature", node.temperature, "\u00B0C")}
-                  ${metric("Humidity", node.humidity, "%")}
-                  ${metric("Pressure", node.pressure, " hPa")}
+                  ${metric("Temperature", node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
+                  ${metric("Humidity", node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
+                  ${metric("Pressure", node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
                 </div>
               </div>
             ` : ""}
@@ -894,9 +904,9 @@ class MeshtasticUiPanel extends LitElement {
               <div class="node-dialog-section">
                 <div class="nd-section-title">Position</div>
                 <div class="nd-metrics">
-                  ${metric("Latitude", node.latitude)}
-                  ${metric("Longitude", node.longitude)}
-                  ${metric("Altitude", node.altitude, " m")}
+                  ${metric("Latitude", node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
+                  ${metric("Longitude", node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
+                  ${metric("Altitude", node.altitude != null ? Math.round(node.altitude) : null, " m")}
                 </div>
               </div>
             ` : ""}
