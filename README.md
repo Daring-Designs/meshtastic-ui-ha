@@ -19,6 +19,16 @@ A Meshtastic node plugged into your Home Assistant server becomes an **always-on
 - **Monitor your mesh passively** — Real-time charts track channel utilization, airtime, battery, and packet rates. See at a glance how busy your mesh is and whether your gateway node is healthy.
 - **Automate with HA** — Pair with HA automations to get push notifications on your phone when a message arrives, trigger alerts based on node status, or log mesh telemetry to long-term databases like InfluxDB.
 
+## Screenshots
+
+| Radio | Nodes | Map |
+|:---:|:---:|:---:|
+| ![Radio Tab](docs/screenshots/radio-tab.png) | ![Nodes Tab](docs/screenshots/nodes-tab.png) | ![Map Tab](docs/screenshots/map-tab.png) |
+
+| Settings | Node Detail | Notifications |
+|:---:|:---:|:---:|
+| ![Settings Tab](docs/screenshots/settings-tab.png) | ![Node Detail](docs/screenshots/node-detail.png) | ![Notifications](docs/screenshots/notifications.png) |
+
 ## Features
 
 ### Radio Tab
