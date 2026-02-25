@@ -1916,16 +1916,31 @@ class MeshHorizonChart extends LitElement {
       }
     }
 
-    ctx.fillStyle = "var(--secondary-text-color, #999)";
+    // Y-axis gridlines
     ctx.font = "9px sans-serif";
+    ctx.textAlign = "left";
+    const yTicks = max <= 10 ? 2 : max <= 50 ? 5 : max <= 100 ? 4 : 4;
+    for (let t = 1; t <= yTicks; t++) {
+      const val = (max / yTicks) * t;
+      const y = h - (val / max) * h;
+      ctx.fillStyle = "rgba(128,128,128,0.25)";
+      ctx.fillRect(0, y, w, 1);
+      if (t < yTicks) {
+        ctx.fillStyle = "rgba(128,128,128,0.7)";
+        ctx.fillText(`${Math.round(val)}`, 3, y - 2);
+      }
+    }
+
+    // X-axis: 10-minute interval gridlines
     ctx.textAlign = "center";
     const bucketSec = this.bucketInterval;
     const totalVisibleSec = visible * bucketSec;
-    for (let s = 60; s < totalVisibleSec; s += 60) {
+    for (let s = 600; s < totalVisibleSec; s += 600) {
       const idx = visible - s / bucketSec;
       if (idx < 0) break;
       const x = idx * colW;
-      const label = `-${s / 60}m`;
+      const mins = s / 60;
+      const label = mins >= 60 ? `-${mins / 60}h` : `-${mins}m`;
       ctx.fillStyle = "rgba(128,128,128,0.4)";
       ctx.fillRect(x, 0, 1, h);
       ctx.fillStyle = "rgba(128,128,128,0.8)";
