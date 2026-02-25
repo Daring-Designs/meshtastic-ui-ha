@@ -250,7 +250,7 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _trace() -> None:
-            iface.sendTraceRoute(dest=destination_id)
+            iface.sendTraceRoute(dest=destination_id, hopLimit=0)
 
         await self._hass.async_add_executor_job(_trace)
 
