@@ -29,10 +29,11 @@ from .const import (
     SIGNAL_TRACEROUTE_RESULT,
     SIGNAL_WAYPOINT_UPDATE,
     TS_FLUSH_SECONDS,
-    TS_POINTS,
+    TS_MAX_POINTS,
+    TS_PERSIST_SECONDS,
 )
 from .frontend import async_register_panel, async_unregister_panel
-from .store import MeshtasticUiStore, normalize_node_id
+from .store import MeshtasticUiStore, TimeSeriesStore, normalize_node_id
 from .websocket_api import async_register_websocket_api
 
 _TS_SERIES_KEYS = ("channelUtil", "airtimeTx", "battery", "packetTx", "packetRx")
@@ -63,23 +64,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = MeshtasticUiStore(hass)
     await store.async_load()
 
+    ts_store = TimeSeriesStore(hass)
+
     # Create the radio connection
     connection = _create_connection(hass, entry.data)
 
     hass.data[DOMAIN] = {
         "store": store,
+        "ts_store": ts_store,
         "connection": connection,
         "unsub_callbacks": [],
         "pending_acks": {},  # packet_id -> message info for delivery tracking
         "ts": {
-            "data": {k: deque([0.0] * TS_POINTS, maxlen=TS_POINTS) for k in _TS_SERIES_KEYS},
-            "packetTypes": {k: deque([0.0] * TS_POINTS, maxlen=TS_POINTS) for k in _PACKET_TYPE_KEYS},
+            "data": {k: deque([0.0] * TS_MAX_POINTS, maxlen=TS_MAX_POINTS) for k in _TS_SERIES_KEYS},
+            "packetTypes": {k: deque([0.0] * TS_MAX_POINTS, maxlen=TS_MAX_POINTS) for k in _PACKET_TYPE_KEYS},
             "snapshots": {"channelUtil": 0.0, "airtimeTx": 0.0, "battery": 0.0},
             "accumulators": {"packetTx": 0, "packetRx": 0},
             "packetTypeAccum": {k: 0 for k in _PACKET_TYPE_KEYS},
             "local_node_num": None,
         },
     }
+
+    # Restore persisted time-series data
+    saved_ts = await ts_store.async_load()
+    if saved_ts:
+        ts = hass.data[DOMAIN]["ts"]
+        for key in _TS_SERIES_KEYS:
+            if key in saved_ts.get("data", {}):
+                vals = saved_ts["data"][key]
+                ts["data"][key] = deque(vals, maxlen=TS_MAX_POINTS)
+        for key in _PACKET_TYPE_KEYS:
+            if key in saved_ts.get("packetTypes", {}):
+                vals = saved_ts["packetTypes"][key]
+                ts["packetTypes"][key] = deque(vals, maxlen=TS_MAX_POINTS)
 
     # Register radio callbacks
     _register_radio_callbacks(hass, store, connection)
@@ -120,6 +137,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     hass.data[DOMAIN]["unsub_callbacks"].append(unsub_ts)
 
+    # Persist time-series to disk every 5 minutes
+    async def _persist_timeseries(_now: Any) -> None:
+        ts = hass.data.get(DOMAIN, {}).get("ts")
+        ts_s = hass.data.get(DOMAIN, {}).get("ts_store")
+        if ts and ts_s:
+            await ts_s.async_save(ts)
+
+    unsub_ts_persist = async_track_time_interval(
+        hass, _persist_timeseries, timedelta(seconds=TS_PERSIST_SECONDS)
+    )
+    hass.data[DOMAIN]["unsub_callbacks"].append(unsub_ts_persist)
+
     # Register WebSocket API
     async_register_websocket_api(hass)
 
@@ -140,6 +169,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = hass.data.pop(DOMAIN, {})
         for unsub in data.get("unsub_callbacks", []):
             unsub()
+        # Persist time-series before shutdown
+        ts_s: TimeSeriesStore | None = data.get("ts_store")
+        ts = data.get("ts")
+        if ts_s and ts:
+            await ts_s.async_save(ts)
         connection: MeshtasticConnection | None = data.get("connection")
         if connection is not None:
             await connection.async_disconnect()

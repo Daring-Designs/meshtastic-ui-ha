@@ -17,6 +17,10 @@ from .const import (
     SAVE_DELAY,
     STORAGE_KEY,
     STORAGE_VERSION,
+    TS_MAX_POINTS,
+    TS_PERSIST_SECONDS,
+    TS_STORAGE_KEY,
+    TS_STORAGE_VERSION,
 )
 
 
@@ -333,3 +337,29 @@ class MeshtasticUiStore:
             self._messages_today = 0
             self._counter_date = today
             self._schedule_save()
+
+
+class TimeSeriesStore:
+    """Separate persistent store for time-series chart data."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+        self._store = Store(hass, TS_STORAGE_VERSION, TS_STORAGE_KEY)
+
+    async def async_load(self) -> dict[str, dict[str, list[float]]] | None:
+        """Load time-series data from disk.
+
+        Returns a dict with 'data' and 'packetTypes' keys, each mapping
+        series name to a list of floats, or None if no saved data.
+        """
+        return await self._store.async_load()
+
+    async def async_save(self, ts_dict: dict[str, Any]) -> None:
+        """Immediately save time-series data to disk."""
+        data_deques = ts_dict.get("data", {})
+        pt_deques = ts_dict.get("packetTypes", {})
+        payload = {
+            "data": {k: list(v) for k, v in data_deques.items()},
+            "packetTypes": {k: list(v) for k, v in pt_deques.items()},
+        }
+        await self._store.async_save(payload)

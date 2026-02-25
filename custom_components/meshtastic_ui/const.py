@@ -16,8 +16,12 @@ NODE_RETENTION_DAYS = 7
 ACTIVE_NODE_WINDOW_SECONDS = 3600  # 1 hour
 
 # Time-series charts
-TS_POINTS = 360          # data points per chart series
-TS_FLUSH_SECONDS = 10    # seconds between flushes → 360 × 10s = 1 hour window
+TS_POINTS = 360          # data points returned to frontend per query
+TS_MAX_POINTS = 60480    # 7 days of raw 10s data (60480 × 10s = 604800s)
+TS_FLUSH_SECONDS = 10    # seconds between flushes
+TS_PERSIST_SECONDS = 300  # save time-series to disk every 5 minutes
+TS_STORAGE_KEY = "meshtastic_ui.timeseries"
+TS_STORAGE_VERSION = 1
 
 # Internal dispatcher signals
 SIGNAL_NEW_MESSAGE = f"{DOMAIN}_new_message"

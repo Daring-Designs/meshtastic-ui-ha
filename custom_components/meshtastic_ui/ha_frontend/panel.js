@@ -40,6 +40,7 @@ class MeshtasticUiPanel extends LitElement {
       _localNodeId: { type: String },
       _timeSeries: { type: Object },
       _packetTypes: { type: Object },
+      _chartWindow: { type: Number },
       _pendingTraceroute: { type: String },
       _tracerouteDialog: { type: Object },
       _unreadCounts: { type: Object },
@@ -75,6 +76,7 @@ class MeshtasticUiPanel extends LitElement {
     this._nodeDialogFeedback = "";
     this._timeSeries = null;
     this._packetTypes = null;
+    this._chartWindow = parseInt(localStorage.getItem("meshtastic_chart_window"), 10) || 3600;
     this._tsPollingId = null;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -179,9 +181,10 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   async _loadTimeSeries() {
-    const result = await this._wsCommand("meshtastic_ui/get_timeseries");
+    const result = await this._wsCommand("meshtastic_ui/get_timeseries", { window: this._chartWindow });
     if (result?.timeseries) {
       this._timeSeries = result.timeseries;
+      this._tsBucketInterval = result.bucketInterval || 10;
     }
     if (result?.packetTypes) {
       this._packetTypes = result.packetTypes;
@@ -331,6 +334,15 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   /* ── Event handlers from child components ── */
+
+  _onChartWindowChange(e) {
+    const w = parseInt(e.detail.window, 10);
+    if (w && w !== this._chartWindow) {
+      this._chartWindow = w;
+      localStorage.setItem("meshtastic_chart_window", String(w));
+      this._loadTimeSeries();
+    }
+  }
 
   _onSelectConversation(e) {
     const conv = e.detail.conversation;
@@ -725,7 +737,14 @@ class MeshtasticUiPanel extends LitElement {
   _renderActiveTab() {
     switch (this._activeTab) {
       case "radio":
-        return html`<mesh-radio-tab .gateways=${this._gateways} .timeSeries=${this._timeSeries} .packetTypes=${this._packetTypes}></mesh-radio-tab>`;
+        return html`<mesh-radio-tab
+          .gateways=${this._gateways}
+          .timeSeries=${this._timeSeries}
+          .packetTypes=${this._packetTypes}
+          .chartWindow=${this._chartWindow}
+          .bucketInterval=${this._tsBucketInterval || 10}
+          @chart-window-change=${this._onChartWindowChange}
+        ></mesh-radio-tab>`;
       case "messages":
         return html`
           <mesh-messages-tab

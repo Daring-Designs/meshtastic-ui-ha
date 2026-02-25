@@ -26,6 +26,8 @@ from .const import (
     SIGNAL_NODE_UPDATE,
     SIGNAL_TRACEROUTE_RESULT,
     SIGNAL_WAYPOINT_UPDATE,
+    TS_FLUSH_SECONDS,
+    TS_POINTS,
     WS_PREFIX,
 )
 from .store import MeshtasticUiStore
@@ -815,25 +817,76 @@ async def ws_set_notification_prefs(
     connection.send_result(msg["id"], {"success": True})
 
 
+# Snapshot metrics are averaged; counter metrics are summed when downsampling.
+_COUNTER_SERIES = {"packetTx", "packetRx"}
+_COUNTER_PACKET_TYPES = {"text", "position", "telemetry", "nodeinfo", "routing", "other"}
+
+
+def _downsample(values: list[float], factor: int, is_counter: bool) -> list[float]:
+    """Downsample a list of floats by *factor* buckets.
+
+    Counters are summed per bucket; snapshot metrics are averaged.
+    """
+    if factor <= 1:
+        return values
+    out: list[float] = []
+    for i in range(0, len(values), factor):
+        chunk = values[i : i + factor]
+        if is_counter:
+            out.append(sum(chunk))
+        else:
+            out.append(sum(chunk) / len(chunk))
+    return out
+
+
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/get_timeseries",
+        vol.Optional("window", default=3600): vol.All(
+            vol.Coerce(int), vol.Range(min=60, max=604800)
+        ),
     }
 )
 @callback
 def ws_get_timeseries(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return time-series chart data collected by the backend."""
+    """Return time-series chart data collected by the backend.
+
+    Accepts an optional *window* parameter (seconds, default 3600).
+    Slices the most recent data for that window and downsamples to
+    TS_POINTS (360) buckets.
+    """
     ts = hass.data.get(DOMAIN, {}).get("ts")
     if ts is None:
         connection.send_result(msg["id"], {"timeseries": None})
         return
+
+    window = msg["window"]
+    raw_points = window // TS_FLUSH_SECONDS  # how many 10s points cover the window
+    factor = max(1, raw_points // TS_POINTS)
+    bucket_interval = factor * TS_FLUSH_SECONDS
+
+    # Slice and downsample main series
+    result_data: dict[str, list[float]] = {}
+    for k, dq in ts["data"].items():
+        sliced = list(dq)[-raw_points:]
+        result_data[k] = _downsample(sliced, factor, k in _COUNTER_SERIES)
+
+    # Slice and downsample packet-type series
     packet_types = ts.get("packetTypes")
+    result_pt: dict[str, list[float]] | None = None
+    if packet_types:
+        result_pt = {}
+        for k, dq in packet_types.items():
+            sliced = list(dq)[-raw_points:]
+            result_pt[k] = _downsample(sliced, factor, True)
+
     connection.send_result(
         msg["id"],
         {
-            "timeseries": {k: list(v) for k, v in ts["data"].items()},
-            "packetTypes": {k: list(v) for k, v in packet_types.items()} if packet_types else None,
+            "timeseries": result_data,
+            "packetTypes": result_pt,
+            "bucketInterval": bucket_interval,
         },
     )
