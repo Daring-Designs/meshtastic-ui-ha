@@ -303,7 +303,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
         </div>
         ${this.packetTypes ? html`
-          <div class="charts-heading">Packets by Type</div>
+          <div class="charts-heading" style="margin-top:12px">Packets by Type</div>
           <mesh-packet-treemap .data=${this.packetTypes}></mesh-packet-treemap>
         ` : ""}
       ` : ""}
@@ -2238,6 +2238,7 @@ class MeshPacketTreemap extends LitElement {
       const pct = ((d.total / grandTotal) * 100).toFixed(1);
 
       const el = document.createElement("div");
+      el.title = `${d.label}: ${d.total} (${pct}%)`;
       el.style.cssText = `
         position:absolute;
         left:${leaf.x0}px;top:${leaf.y0}px;
@@ -2249,10 +2250,10 @@ class MeshPacketTreemap extends LitElement {
         justify-content:center;align-items:center;
         color:#fff;font-size:${lw < 60 ? 9 : 12}px;
         text-shadow:0 1px 2px rgba(0,0,0,0.5);
-        line-height:1.3;
+        line-height:1.3;cursor:default;
       `;
 
-      if (lw > 40 && lh > 24) {
+      if (lw > 50 && lh > 24) {
         el.innerHTML = `<strong>${d.label}</strong>`;
         if (lh > 40) el.innerHTML += `<span style="font-size:${lw < 60 ? 8 : 10}px;opacity:0.9">${d.total} (${pct}%)</span>`;
       }
