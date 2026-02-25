@@ -20,6 +20,21 @@ from .const import (
 )
 
 
+def normalize_node_id(node_id: str) -> str:
+    """Normalize a node ID to the !hex format.
+
+    Handles decimal strings (e.g. '1771758172') and returns '!699ae25c'.
+    IDs already in !hex format are returned as-is.
+    """
+    if node_id.startswith("!"):
+        return node_id
+    try:
+        num = int(node_id)
+        return f"!{num:08x}"
+    except (ValueError, OverflowError):
+        return node_id
+
+
 class MeshtasticUiStore:
     """Persistent store for messages and node data."""
 
@@ -53,7 +68,7 @@ class MeshtasticUiStore:
         for entity_id, messages in data.get("dm_messages", {}).items():
             self._dm_messages[entity_id] = deque(messages, maxlen=MAX_DM_MESSAGES)
 
-        # Restore nodes, prune stale entries
+        # Restore nodes, prune stale entries, normalize IDs to !hex
         now = datetime.now(timezone.utc)
         for node_id, node_data in data.get("nodes", {}).items():
             last_seen = node_data.get("_last_seen")
@@ -61,7 +76,15 @@ class MeshtasticUiStore:
                 seen_dt = datetime.fromisoformat(last_seen)
                 if (now - seen_dt).days > NODE_RETENTION_DAYS:
                     continue
-            self._nodes[node_id] = node_data
+            norm_id = normalize_node_id(node_id)
+            if norm_id in self._nodes:
+                # Merge: prefer the entry with more data
+                existing = self._nodes[norm_id]
+                existing.update(
+                    {k: v for k, v in node_data.items() if v is not None}
+                )
+            else:
+                self._nodes[norm_id] = node_data
 
         # Restore daily counter
         today = now.strftime("%Y-%m-%d")
@@ -72,9 +95,13 @@ class MeshtasticUiStore:
             self._messages_today = 0
         self._counter_date = today
 
-        # Restore favorites and ignored
-        self._favorite_nodes = set(data.get("favorite_nodes", []))
-        self._ignored_nodes = set(data.get("ignored_nodes", []))
+        # Restore favorites and ignored (normalize IDs)
+        self._favorite_nodes = {
+            normalize_node_id(n) for n in data.get("favorite_nodes", [])
+        }
+        self._ignored_nodes = {
+            normalize_node_id(n) for n in data.get("ignored_nodes", [])
+        }
 
         # Restore waypoints, prune expired
         now_ts = int(now.timestamp())
@@ -129,6 +156,7 @@ class MeshtasticUiStore:
 
     def update_node(self, node_id: str, data: dict[str, Any]) -> None:
         """Update or create a node entry."""
+        node_id = normalize_node_id(node_id)
         existing = self._nodes.get(node_id, {})
         existing.update(data)
         existing["_last_seen"] = datetime.now(timezone.utc).isoformat()
@@ -138,6 +166,7 @@ class MeshtasticUiStore:
     def bulk_update_nodes(self, updates: dict[str, dict[str, Any]]) -> None:
         """Bulk update or create multiple node entries efficiently."""
         for node_id, data in updates.items():
+            node_id = normalize_node_id(node_id)
             existing = self._nodes.get(node_id, {})
             existing.update(data)
             if "_last_seen" not in existing:
@@ -147,6 +176,7 @@ class MeshtasticUiStore:
 
     def remove_node(self, node_id: str) -> None:
         """Remove a node entry."""
+        node_id = normalize_node_id(node_id)
         if node_id in self._nodes:
             del self._nodes[node_id]
             self._schedule_save()
@@ -221,6 +251,7 @@ class MeshtasticUiStore:
 
     def set_favorite(self, node_id: str, is_favorite: bool) -> None:
         """Add or remove a node from favorites."""
+        node_id = normalize_node_id(node_id)
         if is_favorite:
             self._favorite_nodes.add(node_id)
         else:
@@ -229,6 +260,7 @@ class MeshtasticUiStore:
 
     def set_ignored(self, node_id: str, is_ignored: bool) -> None:
         """Add or remove a node from ignored list."""
+        node_id = normalize_node_id(node_id)
         if is_ignored:
             self._ignored_nodes.add(node_id)
         else:
@@ -261,13 +293,14 @@ class MeshtasticUiStore:
 
     def set_traceroute(self, node_id: str, data: dict[str, Any]) -> None:
         """Store a traceroute result for a node."""
+        node_id = normalize_node_id(node_id)
         data["_timestamp"] = datetime.now(timezone.utc).isoformat()
         self._traceroutes[node_id] = data
         self._schedule_save()
 
     def get_traceroute(self, node_id: str) -> dict[str, Any] | None:
         """Get the last traceroute result for a node."""
-        return self._traceroutes.get(node_id)
+        return self._traceroutes.get(normalize_node_id(node_id))
 
     def get_all_traceroutes(self) -> dict[str, dict[str, Any]]:
         """Get all stored traceroute results."""

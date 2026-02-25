@@ -27,7 +27,7 @@ from .const import (
     SIGNAL_WAYPOINT_UPDATE,
 )
 from .frontend import async_register_panel, async_unregister_panel
-from .store import MeshtasticUiStore
+from .store import MeshtasticUiStore, normalize_node_id
 from .websocket_api import async_register_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -158,6 +158,8 @@ def _register_radio_callbacks(
         # Track sender as a node
         sender_id = packet.get("fromId")
         if sender_id:
+            sender_id = normalize_node_id(sender_id)
+        if sender_id:
             node_update: dict[str, Any] = {
                 "_last_seen": datetime.now(timezone.utc).isoformat(),
             }
@@ -217,7 +219,7 @@ def _handle_text_message(
     if not text:
         return
 
-    sender_id = packet.get("fromId", "unknown")
+    sender_id = normalize_node_id(packet.get("fromId", "unknown"))
     to_id = packet.get("toId", "")
     channel_index = packet.get("channel", 0)
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -295,8 +297,8 @@ def _handle_traceroute(
     if not traceroute:
         return
 
-    from_id = packet.get("fromId", "")
-    to_id = packet.get("toId", "")
+    from_id = normalize_node_id(packet.get("fromId", ""))
+    to_id = normalize_node_id(packet.get("toId", ""))
 
     # Extract route hops (list of node IDs)
     route = traceroute.get("route", [])
@@ -305,9 +307,9 @@ def _handle_traceroute(
     snr_back = traceroute.get("snrBack", [])
 
     # Convert numeric node IDs to hex format
-    route_ids = [_num_to_id(n) if isinstance(n, int) else str(n) for n in route]
+    route_ids = [_num_to_id(n) if isinstance(n, int) else normalize_node_id(str(n)) for n in route]
     route_back_ids = [
-        _num_to_id(n) if isinstance(n, int) else str(n) for n in route_back
+        _num_to_id(n) if isinstance(n, int) else normalize_node_id(str(n)) for n in route_back
     ]
 
     result = {
