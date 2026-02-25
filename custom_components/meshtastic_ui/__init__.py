@@ -294,11 +294,20 @@ def _handle_traceroute(
     """Handle a traceroute response packet."""
     decoded = packet.get("decoded", {})
     traceroute = decoded.get("traceroute", {})
-    if not traceroute:
-        return
 
     from_id = normalize_node_id(packet.get("fromId", ""))
     to_id = normalize_node_id(packet.get("toId", ""))
+
+    if not from_id or not to_id:
+        _LOGGER.debug("Traceroute packet missing fromId or toId: %s", packet.keys())
+        return
+
+    if not traceroute:
+        # Some library versions may not nest under "traceroute"; still record the route
+        _LOGGER.debug(
+            "Traceroute packet has no decoded route data (keys: %s), recording direct route %s -> %s",
+            list(decoded.keys()), to_id, from_id,
+        )
 
     # Extract route hops (list of node IDs)
     route = traceroute.get("route", [])
@@ -321,9 +330,10 @@ def _handle_traceroute(
         "snr_back": list(snr_back),
     }
 
-    # Store keyed by the destination node
+    # Store keyed by the responding node (destination of the traceroute)
     store.set_traceroute(from_id, result)
 
+    _LOGGER.debug("Traceroute stored: %s -> %s via %d hops", to_id, from_id, len(route_ids))
     async_dispatcher_send(hass, SIGNAL_TRACEROUTE_RESULT, result)
 
 

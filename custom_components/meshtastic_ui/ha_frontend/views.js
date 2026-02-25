@@ -1284,7 +1284,10 @@ export class MeshMapTab extends LitElement {
       this._updateSnrLines();
     }
     if (changedProps.has("waypoints")) this._updateWaypointLayer();
-    if (changedProps.has("traceroutes")) this._updateTracerouteLayer();
+    if (changedProps.has("traceroutes")) {
+      this._updateTracerouteLayer();
+      this._updateSnrLines();
+    }
   }
 
   render() {
@@ -1347,14 +1350,15 @@ export class MeshMapTab extends LitElement {
 
   _renderTracerouteDialog() {
     const data = this._tracerouteDialogData;
-    const hops = [data.from, ...(data.route || []), data.to];
+    // data.to = source (local), data.route = forward hops, data.from = destination
+    const hops = [data.to, ...(data.route || []), data.from];
     const snrs = data.snr_towards || [];
 
     return html`
       <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) this._tracerouteDialogData = null; this.requestUpdate(); }}>
         <div class="traceroute-card">
           <div class="traceroute-header">
-            <div class="title">Traceroute: ${this._getNodeName(data.from)} \u2192 ${this._getNodeName(data.to)}</div>
+            <div class="title">Traceroute: ${this._getNodeName(data.to)} \u2192 ${this._getNodeName(data.from)}</div>
             <button class="close" @click=${() => { this._tracerouteDialogData = null; this.requestUpdate(); }}>\u00D7</button>
           </div>
           <div class="traceroute-body">
@@ -1367,7 +1371,7 @@ export class MeshMapTab extends LitElement {
             `)}
             ${data.route_back?.length ? html`
               <div style="margin-top:12px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">Return Route</div>
-              ${[data.to, ...(data.route_back || []), data.from].map((hopId, i) => html`
+              ${[data.from, ...(data.route_back || []), data.to].map((hopId, i) => html`
                 <div class="route-hop">
                   <div class="hop-number">${i}</div>
                   <div class="hop-name">${this._getNodeName(hopId)}</div>
@@ -1418,6 +1422,7 @@ export class MeshMapTab extends LitElement {
           this._mapInstance.removeLayer(this._tracerouteLayer);
         }
       }
+      this._updateSnrLines();
     }
     this.requestUpdate();
   }
@@ -1599,7 +1604,7 @@ export class MeshMapTab extends LitElement {
 
     // Also draw links from traceroute data (hop-by-hop with per-hop SNR)
     for (const [, tr] of Object.entries(this.traceroutes || {})) {
-      const allHops = [tr.from, ...(tr.route || []), tr.to];
+      const allHops = [tr.to, ...(tr.route || []), tr.from];
       const snrs = tr.snr_towards || [];
       for (let i = 0; i < allHops.length - 1; i++) {
         const a = nodePositions[allHops[i]];
@@ -1628,7 +1633,6 @@ export class MeshMapTab extends LitElement {
   _updateTracerouteLayer() {
     if (!this._tracerouteLayer) return;
     this._tracerouteLayer.clearLayers();
-    this._updateSnrLines(); // Also refresh SNR lines since they use traceroute data too
 
     const nodePositions = {};
     for (const [nodeId, node] of Object.entries(this.nodes)) {
@@ -1640,7 +1644,8 @@ export class MeshMapTab extends LitElement {
     }
 
     for (const [destId, tr] of Object.entries(this.traceroutes || {})) {
-      const allHops = [tr.from, ...(tr.route || []), tr.to];
+      // tr.to = source (local node), tr.route = forward hops, tr.from = destination
+      const allHops = [tr.to, ...(tr.route || []), tr.from];
       const positions = allHops.map((id) => nodePositions[id]).filter(Boolean);
       if (positions.length < 2) continue;
 
@@ -1651,7 +1656,7 @@ export class MeshMapTab extends LitElement {
         dashArray: "8,4",
       });
       line.bindTooltip(
-        `Route to ${this._getNodeName(destId)} (${allHops.length - 1} hops)`,
+        `Route to ${this._getNodeName(destId)} (${allHops.length - 2} hops)`,
         { sticky: true }
       );
       line.on("click", () => {
