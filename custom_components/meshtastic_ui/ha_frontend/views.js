@@ -117,12 +117,14 @@ export class MeshRadioTab extends LitElement {
   static get properties() {
     return {
       gateways: { type: Array },
+      timeSeries: { type: Object },
     };
   }
 
   constructor() {
     super();
     this.gateways = [];
+    this.timeSeries = null;
   }
 
   static get styles() {
@@ -179,6 +181,19 @@ export class MeshRadioTab extends LitElement {
           border-bottom: 1px solid var(--divider-color);
         }
         .channels-table tr:last-child td { border-bottom: none; }
+
+        .charts-section {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          margin-top: 16px;
+        }
+        .charts-heading {
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--secondary-text-color);
+          margin-bottom: 4px;
+        }
       `,
     ];
   }
@@ -195,7 +210,48 @@ export class MeshRadioTab extends LitElement {
         </div>
       `;
     }
-    return html`${this.gateways.map((gw) => this._renderGatewayCard(gw))}`;
+    const ts = this.timeSeries;
+    return html`
+      ${this.gateways.map((gw) => this._renderGatewayCard(gw))}
+      ${ts ? html`
+        <div class="charts-heading">Real-Time Activity (5 min window)</div>
+        <div class="charts-section">
+          <mesh-horizon-chart
+            .data=${ts.channelUtil}
+            label="Channel Utilization"
+            colorScheme="Blues"
+            .maxValue=${100}
+            unit="%"
+          ></mesh-horizon-chart>
+          <mesh-horizon-chart
+            .data=${ts.airtimeTx}
+            label="Airtime TX"
+            colorScheme="Oranges"
+            .maxValue=${100}
+            unit="%"
+          ></mesh-horizon-chart>
+          <mesh-horizon-chart
+            .data=${ts.battery}
+            label="Battery"
+            colorScheme="Greens"
+            .maxValue=${100}
+            unit="%"
+          ></mesh-horizon-chart>
+          <mesh-horizon-chart
+            .data=${ts.packetTx}
+            label="Packets TX"
+            colorScheme="Purples"
+            unit="pkts/2s"
+          ></mesh-horizon-chart>
+          <mesh-horizon-chart
+            .data=${ts.packetRx}
+            label="Packets RX"
+            colorScheme="Reds"
+            unit="pkts/2s"
+          ></mesh-horizon-chart>
+        </div>
+      ` : ""}
+    `;
   }
 
   _renderGatewayCard(gw) {
@@ -1608,6 +1664,7 @@ class MeshHorizonChart extends LitElement {
       maxValue: { type: Number },
       unit: { type: String },
       _d3Ready: { type: Boolean },
+      _tooltip: { type: Object },
     };
   }
 
@@ -1623,6 +1680,7 @@ class MeshHorizonChart extends LitElement {
     this._d3Ready = false;
     this._resizeObserver = null;
     this._canvasWidth = 0;
+    this._tooltip = null;
   }
 
   connectedCallback() {
@@ -1660,6 +1718,27 @@ class MeshHorizonChart extends LitElement {
     }
   }
 
+  _onMouseMove(e) {
+    if (!this.data) return;
+    const canvas = this.shadowRoot.querySelector("canvas");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    const len = this.data.length;
+    const colW = w / len;
+    const idx = Math.floor(x / colW);
+    if (idx < 0 || idx >= len) { this._tooltip = null; return; }
+    const value = this.data[idx];
+    const secsAgo = (len - 1 - idx) * 2;
+    const timeLabel = secsAgo === 0 ? "now" : `-${secsAgo}s ago`;
+    this._tooltip = { x, value: Math.round(value * 100) / 100, timeLabel };
+  }
+
+  _onMouseLeave() {
+    this._tooltip = null;
+  }
+
   _drawHorizon() {
     if (!this._d3Ready || !this.data || !window.d3) return;
     const canvas = this.shadowRoot.querySelector("canvas");
@@ -1690,8 +1769,6 @@ class MeshHorizonChart extends LitElement {
       ? scheme[Math.max(3, this.bands + 1)].slice(1, this.bands + 1)
       : d3.schemeBlues[Math.max(3, this.bands + 1)].slice(1, this.bands + 1);
 
-    // Horizon chart: each column draws stacked color bands from the bottom.
-    // Band 0 = lightest, higher bands = darker. Each band occupies bandH px max.
     for (let i = 0; i < len; i++) {
       const val = Math.min(arr[i], max);
       const scaled = (val / max) * (bandH * this.bands);
@@ -1705,7 +1782,6 @@ class MeshHorizonChart extends LitElement {
       }
     }
 
-    // Time axis: minute-boundary ticks
     ctx.fillStyle = "var(--secondary-text-color, #999)";
     ctx.font = "9px sans-serif";
     ctx.textAlign = "center";
@@ -1746,6 +1822,7 @@ class MeshHorizonChart extends LitElement {
         display: block;
         width: 100%;
         border-radius: 4px;
+        cursor: crosshair;
       }
       .loading {
         height: 64px;
@@ -1755,17 +1832,50 @@ class MeshHorizonChart extends LitElement {
         color: var(--secondary-text-color);
         font-size: 13px;
       }
+      .crosshair {
+        position: absolute;
+        top: 0;
+        width: 1px;
+        height: 100%;
+        background: var(--primary-color, #03a9f4);
+        pointer-events: none;
+        opacity: 0.7;
+      }
+      .tooltip {
+        position: absolute;
+        top: -32px;
+        transform: translateX(-50%);
+        background: var(--card-background-color, #333);
+        color: var(--primary-text-color, #fff);
+        border: 1px solid var(--divider-color, #555);
+        border-radius: 8px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        pointer-events: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        z-index: 10;
+      }
     `;
   }
 
   render() {
+    const tt = this._tooltip;
     return html`
       <div class="chart-container">
         <div class="chart-label">${this.label}${this.unit ? html` <span style="opacity:0.6">(${this.unit})</span>` : ""}</div>
-        <div class="chart-wrap">
+        <div class="chart-wrap"
+          @mousemove=${this._onMouseMove}
+          @mouseleave=${this._onMouseLeave}
+        >
           ${this._d3Ready
             ? html`<canvas height="${this.height}"></canvas>`
             : html`<div class="loading">Loading D3...</div>`}
+          ${tt ? html`
+            <div class="crosshair" style="left:${tt.x}px"></div>
+            <div class="tooltip" style="left:${tt.x}px">${tt.value}${this.unit ? ` ${this.unit}` : ""} @ ${tt.timeLabel}</div>
+          ` : ""}
         </div>
       </div>
     `;
@@ -1773,114 +1883,3 @@ class MeshHorizonChart extends LitElement {
 }
 customElements.define("mesh-horizon-chart", MeshHorizonChart);
 
-/* ══════════════════════════════════════════════════════════
-   <mesh-stats-tab>
-   ══════════════════════════════════════════════════════════ */
-
-export class MeshStatsTab extends LitElement {
-  static get properties() {
-    return {
-      stats: { type: Object },
-      timeSeries: { type: Object },
-    };
-  }
-
-  constructor() {
-    super();
-    this.stats = { messages_today: 0, active_nodes: 0, total_nodes: 0, channel_count: 0 };
-    this.timeSeries = null;
-  }
-
-  static get styles() {
-    return css`
-      :host { display: block; }
-      .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 16px;
-      }
-      .stat-card {
-        background: var(--card-background-color);
-        border-radius: 12px; padding: 20px;
-        border: 1px solid var(--divider-color);
-      }
-      .stat-card .label {
-        font-size: 13px; color: var(--secondary-text-color);
-        font-weight: 500; margin-bottom: 8px;
-      }
-      .stat-card .value {
-        font-size: 32px; font-weight: 700;
-        color: var(--primary-text-color);
-      }
-      .charts-section {
-        margin-top: 24px;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 16px;
-      }
-      .charts-heading {
-        margin-top: 24px;
-        margin-bottom: 4px;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--secondary-text-color);
-      }
-    `;
-  }
-
-  render() {
-    const cards = [
-      { label: "Messages Today", value: this.stats.messages_today, icon: "mdi:message-text" },
-      { label: "Active Nodes", value: this.stats.active_nodes, icon: "mdi:access-point" },
-      { label: "Total Nodes", value: this.stats.total_nodes, icon: "mdi:radio-tower" },
-      { label: "Channels", value: this.stats.channel_count, icon: "mdi:forum" },
-    ];
-
-    const ts = this.timeSeries;
-
-    return html`
-      <div class="stats-grid">
-        ${cards.map((card) => html`
-          <div class="stat-card">
-            <div class="label">
-              <ha-icon icon="${card.icon}" style="--mdc-icon-size: 18px; vertical-align: middle; margin-right: 4px;"></ha-icon>
-              ${card.label}
-            </div>
-            <div class="value">${card.value}</div>
-          </div>
-        `)}
-      </div>
-      ${ts ? html`
-        <div class="charts-heading">Real-Time Activity (5 min window)</div>
-        <div class="charts-section">
-          <mesh-horizon-chart
-            .data=${ts.messageRate}
-            label="Message Rate"
-            colorScheme="Blues"
-            unit="msgs/2s"
-          ></mesh-horizon-chart>
-          <mesh-horizon-chart
-            .data=${ts.networkSnr}
-            label="Network SNR"
-            colorScheme="Greens"
-            unit="dB"
-          ></mesh-horizon-chart>
-          <mesh-horizon-chart
-            .data=${ts.nodeActivity}
-            label="Node Activity"
-            colorScheme="Oranges"
-            unit="events/2s"
-          ></mesh-horizon-chart>
-          <mesh-horizon-chart
-            .data=${ts.deliveryRate}
-            label="Delivery Rate"
-            colorScheme="Purples"
-            unit="%"
-            .maxValue=${1}
-          ></mesh-horizon-chart>
-        </div>
-      ` : ""}
-    `;
-  }
-}
-customElements.define("mesh-stats-tab", MeshStatsTab);

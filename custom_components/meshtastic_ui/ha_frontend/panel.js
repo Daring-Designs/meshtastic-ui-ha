@@ -8,13 +8,12 @@ import {
 import "./views.js";
 import "./settings.js";
 
-const TABS = ["radio", "messages", "nodes", "map", "stats", "settings"];
+const TABS = ["radio", "messages", "nodes", "map", "settings"];
 const TAB_LABELS = {
   radio: "Radio",
   messages: "Messages",
   nodes: "Nodes",
   map: "Map",
-  stats: "Stats",
   settings: "Settings",
 };
 
@@ -31,7 +30,6 @@ class MeshtasticUiPanel extends LitElement {
       _dms: { type: Array },
       _selectedConversation: { type: String },
       _nodes: { type: Object },
-      _stats: { type: Object },
       _favoriteNodes: { type: Array },
       _ignoredNodes: { type: Array },
       _deliveryStatuses: { type: Object },
@@ -51,7 +49,6 @@ class MeshtasticUiPanel extends LitElement {
     this._dms = [];
     this._selectedConversation = "";
     this._nodes = {};
-    this._stats = { messages_today: 0, active_nodes: 0, total_nodes: 0, channel_count: 0 };
     this._favoriteNodes = [];
     this._ignoredNodes = [];
     this._deliveryStatuses = {}; // packet_id -> {status, error}
@@ -59,15 +56,14 @@ class MeshtasticUiPanel extends LitElement {
     this._traceroutes = {};
     this._localNodeId = "";
     this._timeSeries = {
-      messageRate: new Float64Array(150),
-      networkSnr: new Float64Array(150),
-      nodeActivity: new Float64Array(150),
-      deliveryRate: new Float64Array(150),
+      channelUtil: new Float64Array(150),
+      airtimeTx: new Float64Array(150),
+      battery: new Float64Array(150),
+      packetTx: new Float64Array(150),
+      packetRx: new Float64Array(150),
     };
-    this._tsAccumulators = {
-      msgCount: 0, snrSum: 0, snrCount: 0,
-      nodeCount: 0, deliveryOk: 0, deliveryTotal: 0,
-    };
+    this._tsAccumulators = { packetRx: 0, packetTx: 0 };
+    this._tsSnapshots = { channelUtil: 0, airtimeTx: 0, battery: 0 };
     this._tsIntervalId = null;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -97,7 +93,6 @@ class MeshtasticUiPanel extends LitElement {
     await this._loadGateways();
     await this._loadMessages();
     await this._loadNodes();
-    await this._loadStats();
     await this._loadWaypoints();
     await this._loadTraceroutes();
     this._subscribe();
@@ -141,11 +136,6 @@ class MeshtasticUiPanel extends LitElement {
     }
   }
 
-  async _loadStats() {
-    const result = await this._wsCommand("meshtastic_ui/stats");
-    if (result) this._stats = result;
-  }
-
   async _loadWaypoints() {
     const result = await this._wsCommand("meshtastic_ui/get_waypoints");
     if (result) this._waypoints = result.waypoints || {};
@@ -159,17 +149,18 @@ class MeshtasticUiPanel extends LitElement {
   _flushTimeSeries() {
     const ts = this._timeSeries;
     const acc = this._tsAccumulators;
+    const snap = this._tsSnapshots;
     for (const key of Object.keys(ts)) {
       ts[key].copyWithin(0, 1);
     }
-    ts.messageRate[149] = acc.msgCount;
-    ts.networkSnr[149] = acc.snrCount > 0 ? acc.snrSum / acc.snrCount : 0;
-    ts.nodeActivity[149] = acc.nodeCount;
-    ts.deliveryRate[149] = acc.deliveryTotal > 0 ? acc.deliveryOk / acc.deliveryTotal : 0;
-    this._tsAccumulators = {
-      msgCount: 0, snrSum: 0, snrCount: 0,
-      nodeCount: 0, deliveryOk: 0, deliveryTotal: 0,
-    };
+    // Snapshot values (latest telemetry, not reset)
+    ts.channelUtil[149] = snap.channelUtil;
+    ts.airtimeTx[149] = snap.airtimeTx;
+    ts.battery[149] = snap.battery;
+    // Counter values (reset each flush)
+    ts.packetTx[149] = acc.packetTx;
+    ts.packetRx[149] = acc.packetRx;
+    this._tsAccumulators = { packetRx: 0, packetTx: 0 };
     this._timeSeries = { ...ts };
   }
 
@@ -236,7 +227,7 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   _handleRealtimeMessage(data) {
-    this._tsAccumulators.msgCount++;
+    this._tsAccumulators.packetRx++;
 
     const key = data.type === "dm" ? data.partner : data.channel;
     if (!key) return;
@@ -254,36 +245,27 @@ class MeshtasticUiPanel extends LitElement {
       ...this._messages,
       [key]: [...(this._messages[key] || []), data],
     };
-
-    this._stats = {
-      ...this._stats,
-      messages_today: (this._stats.messages_today || 0) + 1,
-    };
   }
 
   _handleNodeUpdate(event) {
     const { node_id, data } = event;
     if (!node_id) return;
-    this._tsAccumulators.nodeCount++;
-    if (data?.snr != null) {
-      this._tsAccumulators.snrSum += data.snr;
-      this._tsAccumulators.snrCount++;
+    // Capture telemetry snapshots from the local (gateway) node
+    if (node_id === this._localNodeId && data) {
+      if (data.channel_utilization != null) this._tsSnapshots.channelUtil = data.channel_utilization;
+      if (data.air_util_tx != null) this._tsSnapshots.airtimeTx = data.air_util_tx;
+      if (data.battery != null) this._tsSnapshots.battery = data.battery;
     }
     this._nodes = {
       ...this._nodes,
       [node_id]: { ...(this._nodes[node_id] || {}), ...data },
-    };
-    this._stats = {
-      ...this._stats,
-      total_nodes: Object.keys(this._nodes).length,
     };
   }
 
   _handleDeliveryStatus(event) {
     const { packet_id, status, error } = event;
     if (!packet_id) return;
-    this._tsAccumulators.deliveryTotal++;
-    if (status === "delivered") this._tsAccumulators.deliveryOk++;
+    this._tsAccumulators.packetTx++;
     this._deliveryStatuses = {
       ...this._deliveryStatuses,
       [packet_id]: { status, error },
@@ -312,7 +294,6 @@ class MeshtasticUiPanel extends LitElement {
     this._activeTab = tab;
     if (tab === "radio") this._loadGateways();
     if (tab === "nodes") this._loadNodes();
-    if (tab === "stats") this._loadStats();
     if (tab === "map") { this._loadNodes(); this._loadWaypoints(); this._loadTraceroutes(); }
   }
 
@@ -486,7 +467,7 @@ class MeshtasticUiPanel extends LitElement {
   _renderActiveTab() {
     switch (this._activeTab) {
       case "radio":
-        return html`<mesh-radio-tab .gateways=${this._gateways}></mesh-radio-tab>`;
+        return html`<mesh-radio-tab .gateways=${this._gateways} .timeSeries=${this._timeSeries}></mesh-radio-tab>`;
       case "messages":
         return html`
           <mesh-messages-tab
@@ -511,8 +492,6 @@ class MeshtasticUiPanel extends LitElement {
         `;
       case "map":
         return html`<mesh-map-tab .nodes=${this._nodes} .waypoints=${this._waypoints} .traceroutes=${this._traceroutes} .localNodeId=${this._localNodeId}></mesh-map-tab>`;
-      case "stats":
-        return html`<mesh-stats-tab .stats=${this._stats} .timeSeries=${this._timeSeries}></mesh-stats-tab>`;
       case "settings":
         return html`
           <mesh-settings-tab
