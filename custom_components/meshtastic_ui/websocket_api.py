@@ -56,6 +56,8 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_subscribe_waypoints)
     async_register_command(hass, ws_get_traceroutes)
     async_register_command(hass, ws_subscribe_traceroutes)
+    async_register_command(hass, ws_get_notification_prefs)
+    async_register_command(hass, ws_set_notification_prefs)
 
 
 def _get_store(hass: HomeAssistant) -> MeshtasticUiStore:
@@ -771,3 +773,42 @@ def ws_subscribe_traceroutes(
     )
     connection.subscriptions[msg["id"]] = unsub
     connection.send_result(msg["id"])
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/get_notification_prefs",
+    }
+)
+@async_response
+async def ws_get_notification_prefs(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return notification preferences."""
+    store = _get_store(hass)
+    connection.send_result(msg["id"], store.get_notification_prefs())
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/set_notification_prefs",
+        vol.Optional("enabled"): bool,
+        vol.Optional("service"): str,
+        vol.Optional("filter"): str,
+    }
+)
+@async_response
+async def ws_set_notification_prefs(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Update notification preferences."""
+    store = _get_store(hass)
+    prefs: dict[str, Any] = {}
+    if "enabled" in msg:
+        prefs["enabled"] = msg["enabled"]
+    if "service" in msg:
+        prefs["service"] = msg["service"]
+    if "filter" in msg:
+        prefs["filter"] = msg["filter"]
+    store.set_notification_prefs(prefs)
+    connection.send_result(msg["id"], {"success": True})

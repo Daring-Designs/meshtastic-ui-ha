@@ -37,6 +37,11 @@ class MeshtasticUiPanel extends LitElement {
       _traceroutes: { type: Object },
       _localNodeId: { type: String },
       _timeSeries: { type: Object },
+      _pendingTraceroute: { type: String },
+      _tracerouteDialog: { type: Object },
+      _unreadCounts: { type: Object },
+      _notificationPrefs: { type: Object },
+      _showNotificationModal: { type: Boolean },
     };
   }
 
@@ -55,6 +60,12 @@ class MeshtasticUiPanel extends LitElement {
     this._waypoints = {};
     this._traceroutes = {};
     this._localNodeId = "";
+    this._pendingTraceroute = null;
+    this._tracerouteDialog = null;
+    this._tracerouteTimeoutId = null;
+    this._unreadCounts = JSON.parse(localStorage.getItem("meshtastic_unread") || "{}");
+    this._notificationPrefs = { enabled: false, service: "notify.notify", filter: "all" };
+    this._showNotificationModal = false;
     this._timeSeries = {
       channelUtil: new Float64Array(150),
       airtimeTx: new Float64Array(150),
@@ -85,6 +96,10 @@ class MeshtasticUiPanel extends LitElement {
       clearInterval(this._tsIntervalId);
       this._tsIntervalId = null;
     }
+    if (this._tracerouteTimeoutId) {
+      clearTimeout(this._tracerouteTimeoutId);
+      this._tracerouteTimeoutId = null;
+    }
   }
 
   /* ── Data loading ── */
@@ -95,6 +110,7 @@ class MeshtasticUiPanel extends LitElement {
     await this._loadNodes();
     await this._loadWaypoints();
     await this._loadTraceroutes();
+    await this._loadNotificationPrefs();
     this._subscribe();
   }
 
@@ -150,6 +166,11 @@ class MeshtasticUiPanel extends LitElement {
   async _loadTraceroutes() {
     const result = await this._wsCommand("meshtastic_ui/get_traceroutes");
     if (result) this._traceroutes = result.traceroutes || {};
+  }
+
+  async _loadNotificationPrefs() {
+    const result = await this._wsCommand("meshtastic_ui/get_notification_prefs");
+    if (result) this._notificationPrefs = result;
   }
 
   _flushTimeSeries() {
@@ -258,6 +279,18 @@ class MeshtasticUiPanel extends LitElement {
       ...this._messages,
       [key]: [...(this._messages[key] || []), data],
     };
+
+    // Increment unread unless user is viewing this exact conversation
+    if (!data._outgoing) {
+      const isViewing = this._activeTab === "messages" && this._selectedConversation === key;
+      if (!isViewing) {
+        this._unreadCounts = {
+          ...this._unreadCounts,
+          [key]: (this._unreadCounts[key] || 0) + 1,
+        };
+        localStorage.setItem("meshtastic_unread", JSON.stringify(this._unreadCounts));
+      }
+    }
   }
 
   _handleNodeUpdate(event) {
@@ -299,6 +332,12 @@ class MeshtasticUiPanel extends LitElement {
     const { from: fromId } = event;
     if (!fromId) return;
     this._traceroutes = { ...this._traceroutes, [fromId]: event };
+    // Auto-open dialog if this matches pending traceroute
+    if (this._pendingTraceroute === fromId) {
+      clearTimeout(this._tracerouteTimeoutId);
+      this._pendingTraceroute = null;
+      this._tracerouteDialog = event;
+    }
   }
 
   /* ── Tab switching ── */
@@ -313,7 +352,13 @@ class MeshtasticUiPanel extends LitElement {
   /* ── Event handlers from child components ── */
 
   _onSelectConversation(e) {
-    this._selectedConversation = e.detail.conversation;
+    const conv = e.detail.conversation;
+    this._selectedConversation = conv;
+    if (this._unreadCounts[conv]) {
+      const { [conv]: _, ...rest } = this._unreadCounts;
+      this._unreadCounts = rest;
+      localStorage.setItem("meshtastic_unread", JSON.stringify(this._unreadCounts));
+    }
   }
 
   async _onSendMessage(e) {
@@ -345,12 +390,26 @@ class MeshtasticUiPanel extends LitElement {
       this._activeTab = "messages";
       if (nodesTab) nodesTab.closeDialog();
     } else if (action === "trace-route") {
+      // Set pending state before sending
+      this._pendingTraceroute = nodeId;
+      this._tracerouteDialog = null;
+      if (this._tracerouteTimeoutId) clearTimeout(this._tracerouteTimeoutId);
+      // Start 30s timeout
+      this._tracerouteTimeoutId = setTimeout(() => {
+        if (this._pendingTraceroute === nodeId) {
+          this._pendingTraceroute = null;
+          this._tracerouteDialog = { error: true, nodeId };
+        }
+      }, 30000);
+
       const result = await this._wsCommand("meshtastic_ui/call_service", {
         service: "trace_route",
         service_data: { destination: nodeId },
       });
-      if (nodesTab) {
-        nodesTab.showFeedback(result?.success ? "Trace route sent" : "Trace route unavailable");
+      if (!result?.success) {
+        this._pendingTraceroute = null;
+        clearTimeout(this._tracerouteTimeoutId);
+        if (nodesTab) nodesTab.showFeedback("Trace route unavailable");
       }
     } else if (action === "request-position") {
       const result = await this._wsCommand("meshtastic_ui/call_service", {
@@ -444,6 +503,115 @@ class MeshtasticUiPanel extends LitElement {
         box-sizing: border-box;
       }
 
+      .tab-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 18px; height: 18px; padding: 0 5px;
+        border-radius: 9px; background: #f44336; color: white;
+        font-size: 10px; font-weight: 700; margin-left: 6px;
+        line-height: 1; box-sizing: border-box;
+      }
+
+      .bell-icon {
+        display: flex; align-items: center; padding: 12px;
+        cursor: pointer; color: var(--secondary-text-color);
+        border-bottom: 2px solid transparent;
+      }
+      .bell-icon:hover { color: var(--primary-text-color); }
+
+      .notification-modal {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 2000;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .notification-card {
+        background: var(--card-background-color); border-radius: 12px;
+        width: 90%; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      }
+      .notification-header {
+        display: flex; align-items: center; padding: 16px 20px;
+        border-bottom: 1px solid var(--divider-color);
+      }
+      .notification-header .title { flex: 1; font-size: 16px; font-weight: 600; }
+      .notification-header .close {
+        background: none; border: none; font-size: 22px;
+        cursor: pointer; color: var(--secondary-text-color);
+      }
+      .notification-body { padding: 16px 20px; }
+      .notification-field { margin-bottom: 16px; }
+      .notification-field label {
+        display: block; font-size: 13px; font-weight: 500;
+        color: var(--secondary-text-color); margin-bottom: 6px;
+      }
+      .notification-field input[type="text"],
+      .notification-field select {
+        width: 100%; padding: 8px 12px; border: 1px solid var(--divider-color);
+        border-radius: 8px; background: var(--primary-background-color);
+        color: var(--primary-text-color); font-size: 14px; box-sizing: border-box;
+      }
+      .notification-toggle {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 8px 0;
+      }
+      .notification-toggle label { margin-bottom: 0; }
+      .toggle-switch {
+        position: relative; width: 44px; height: 24px; cursor: pointer;
+      }
+      .toggle-switch input { opacity: 0; width: 0; height: 0; }
+      .toggle-slider {
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--divider-color); border-radius: 12px; transition: 0.2s;
+      }
+      .toggle-slider::before {
+        content: ""; position: absolute; width: 18px; height: 18px;
+        left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s;
+      }
+      .toggle-switch input:checked + .toggle-slider { background: var(--primary-color); }
+      .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+      .notification-save {
+        width: 100%; padding: 10px; border: none; border-radius: 8px;
+        background: var(--primary-color); color: var(--text-primary-color);
+        font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px;
+      }
+      .notification-save:hover { opacity: 0.9; }
+
+      .traceroute-dialog {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 2000;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .traceroute-card {
+        background: var(--card-background-color); border-radius: 12px;
+        width: 90%; max-width: 480px; max-height: 80vh; overflow-y: auto;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      }
+      .traceroute-header {
+        display: flex; align-items: center; padding: 16px 20px;
+        border-bottom: 1px solid var(--divider-color);
+      }
+      .traceroute-header .title { flex: 1; font-size: 16px; font-weight: 600; }
+      .traceroute-header .close {
+        background: none; border: none; font-size: 22px;
+        cursor: pointer; color: var(--secondary-text-color);
+      }
+      .traceroute-body { padding: 16px 20px; }
+      .route-hop {
+        display: flex; align-items: center; gap: 12px;
+        padding: 8px 0; border-bottom: 1px solid var(--divider-color);
+      }
+      .route-hop:last-child { border-bottom: none; }
+      .hop-number {
+        width: 24px; height: 24px; border-radius: 50%;
+        background: var(--primary-color); color: var(--text-primary-color);
+        font-size: 11px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      }
+      .hop-name { flex: 1; font-size: 14px; font-weight: 500; }
+      .hop-snr { font-size: 12px; color: var(--secondary-text-color); }
+      .traceroute-error {
+        text-align: center; padding: 24px 16px; color: var(--secondary-text-color);
+      }
+      .traceroute-error ha-icon { --mdc-icon-size: 36px; margin-bottom: 12px; opacity: 0.5; display: block; }
+
       @media (max-width: 600px) {
         .tabs { padding: 0 4px; }
         .tab { padding: 10px 12px; font-size: 13px; }
@@ -457,20 +625,30 @@ class MeshtasticUiPanel extends LitElement {
   render() {
     return html`
       <div class="tabs">
-        ${TABS.map(
-          (tab) => html`
+        ${TABS.map((tab) => {
+          const unread = tab === "messages"
+            ? Object.values(this._unreadCounts).reduce((a, b) => a + b, 0) : 0;
+          return html`
             <div
               class="tab ${this._activeTab === tab ? "active" : ""}"
               @click=${() => this._setTab(tab)}
             >
               ${TAB_LABELS[tab]}
+              ${unread > 0 ? html`<span class="tab-badge">${unread > 99 ? "99+" : unread}</span>` : ""}
             </div>
-          `
-        )}
+          `;
+        })}
+        <div style="flex:1;"></div>
+        <div class="tab bell-icon" @click=${() => { this._showNotificationModal = true; }}>
+          <ha-icon icon="mdi:${this._notificationPrefs.enabled ? "bell" : "bell-outline"}"
+            style="--mdc-icon-size: 20px;"></ha-icon>
+        </div>
       </div>
       <div class="content">
         ${this._renderActiveTab()}
       </div>
+      ${this._tracerouteDialog ? this._renderTracerouteDialog() : ""}
+      ${this._showNotificationModal ? this._renderNotificationModal() : ""}
     `;
   }
 
@@ -487,6 +665,7 @@ class MeshtasticUiPanel extends LitElement {
             .selectedConversation=${this._selectedConversation}
             .deliveryStatuses=${this._deliveryStatuses}
             .nodes=${this._nodes}
+            .unreadCounts=${this._unreadCounts}
             @select-conversation=${this._onSelectConversation}
             @send-message=${this._onSendMessage}
           ></mesh-messages-tab>
@@ -497,6 +676,7 @@ class MeshtasticUiPanel extends LitElement {
             .nodes=${this._nodes}
             .favoriteNodes=${this._favoriteNodes}
             .ignoredNodes=${this._ignoredNodes}
+            .pendingTraceroute=${this._pendingTraceroute}
             @node-action=${this._onNodeAction}
           ></mesh-nodes-tab>
         `;
@@ -512,6 +692,118 @@ class MeshtasticUiPanel extends LitElement {
       default:
         return html``;
     }
+  }
+  /* ── Traceroute dialog ── */
+
+  _getNodeName(nodeId) {
+    if (!nodeId) return "Unknown";
+    const node = this._nodes?.[nodeId];
+    return node?.name || node?.short_name || nodeId;
+  }
+
+  _renderTracerouteDialog() {
+    const data = this._tracerouteDialog;
+    if (data.error) {
+      const nodeName = this._getNodeName(data.nodeId);
+      return html`
+        <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) { this._tracerouteDialog = null; } }}>
+          <div class="traceroute-card">
+            <div class="traceroute-header">
+              <div class="title">Traceroute Timed Out</div>
+              <button class="close" @click=${() => { this._tracerouteDialog = null; }}>\u00D7</button>
+            </div>
+            <div class="traceroute-body">
+              <div class="traceroute-error">
+                <ha-icon icon="mdi:timer-sand-empty"></ha-icon>
+                <div>No response from <strong>${nodeName}</strong> after 30 seconds.</div>
+                <div style="margin-top:8px;font-size:13px;">The node may be out of range or powered off.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const hops = [data.to, ...(data.route || []), data.from];
+    const snrs = data.snr_towards || [];
+    return html`
+      <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) { this._tracerouteDialog = null; } }}>
+        <div class="traceroute-card">
+          <div class="traceroute-header">
+            <div class="title">Traceroute: ${this._getNodeName(data.to)} \u2192 ${this._getNodeName(data.from)}</div>
+            <button class="close" @click=${() => { this._tracerouteDialog = null; }}>\u00D7</button>
+          </div>
+          <div class="traceroute-body">
+            ${hops.map((hopId, i) => html`
+              <div class="route-hop">
+                <div class="hop-number">${i}</div>
+                <div class="hop-name">${this._getNodeName(hopId)}</div>
+                ${i > 0 && snrs[i - 1] != null ? html`<div class="hop-snr">${snrs[i - 1]} dB</div>` : ""}
+              </div>
+            `)}
+            ${data.route_back?.length ? html`
+              <div style="margin-top:12px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">Return Route</div>
+              ${[data.from, ...(data.route_back || []), data.to].map((hopId, i) => html`
+                <div class="route-hop">
+                  <div class="hop-number">${i}</div>
+                  <div class="hop-name">${this._getNodeName(hopId)}</div>
+                  ${i > 0 && data.snr_back?.[i - 1] != null ? html`<div class="hop-snr">${data.snr_back[i - 1]} dB</div>` : ""}
+                </div>
+              `)}
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* ── Notification modal ── */
+
+  _renderNotificationModal() {
+    const p = this._notificationPrefs;
+    return html`
+      <div class="notification-modal" @click=${(e) => { if (e.target.classList.contains("notification-modal")) { this._showNotificationModal = false; } }}>
+        <div class="notification-card">
+          <div class="notification-header">
+            <div class="title">Notification Settings</div>
+            <button class="close" @click=${() => { this._showNotificationModal = false; }}>\u00D7</button>
+          </div>
+          <div class="notification-body">
+            <div class="notification-field">
+              <div class="notification-toggle">
+                <label>Enable Notifications</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" .checked=${p.enabled}
+                    @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, enabled: e.target.checked }; }} />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="notification-field">
+              <label>Notify Service</label>
+              <input type="text" .value=${p.service || ""}
+                placeholder="notify.mobile_app_phone"
+                @input=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, service: e.target.value }; }} />
+            </div>
+            <div class="notification-field">
+              <label>Message Filter</label>
+              <select .value=${p.filter || "all"}
+                @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, filter: e.target.value }; }}>
+                <option value="all">All Messages</option>
+                <option value="channel">Channels Only</option>
+                <option value="dm">Direct Messages Only</option>
+              </select>
+            </div>
+            <button class="notification-save" @click=${this._saveNotificationPrefs}>Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async _saveNotificationPrefs() {
+    await this._wsCommand("meshtastic_ui/set_notification_prefs", this._notificationPrefs);
+    this._showNotificationModal = false;
   }
 }
 

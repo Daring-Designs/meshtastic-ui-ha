@@ -341,6 +341,7 @@ export class MeshMessagesTab extends LitElement {
       selectedConversation: { type: String },
       deliveryStatuses: { type: Object },
       nodes: { type: Object },
+      unreadCounts: { type: Object },
     };
   }
 
@@ -352,6 +353,7 @@ export class MeshMessagesTab extends LitElement {
     this.selectedConversation = "";
     this.deliveryStatuses = {};
     this.nodes = {};
+    this.unreadCounts = {};
     this._messageInput = "";
   }
 
@@ -461,6 +463,16 @@ export class MeshMessagesTab extends LitElement {
           margin-left: 6px; opacity: 0.6; vertical-align: middle;
         }
 
+        .conv-badge {
+          display: inline-flex; align-items: center; justify-content: center;
+          min-width: 18px; height: 18px; padding: 0 5px;
+          border-radius: 9px; background: #f44336; color: white;
+          font-size: 10px; font-weight: 700; margin-left: auto;
+          line-height: 1;
+        }
+        .conversation-item.active .conv-badge { background: rgba(255,255,255,0.3); }
+        .conversation-item { display: flex; align-items: center; }
+
         @media (max-width: 600px) {
           .messages-layout { flex-direction: column; }
           .conversation-list {
@@ -493,21 +505,25 @@ export class MeshMessagesTab extends LitElement {
       <div class="messages-layout">
         <div class="conversation-list">
           <div class="conversation-header">Channels</div>
-          ${defaultChannels.map((ch) => html`
-            <div
-              class="conversation-item ${selected === ch ? "active" : ""}"
-              @click=${() => this._selectConversation(ch)}
-            >${ch === "0" ? "Primary" : ch}</div>
-          `)}
+          ${defaultChannels.map((ch) => {
+            const badge = this.unreadCounts?.[ch] || 0;
+            return html`
+              <div
+                class="conversation-item ${selected === ch ? "active" : ""}"
+                @click=${() => this._selectConversation(ch)}
+              >${ch === "0" ? "Primary" : ch}${badge > 0 ? html`<span class="conv-badge">${badge}</span>` : ""}</div>
+            `;
+          })}
           ${this.dms.length ? html`
             <div class="conversation-header">Direct Messages</div>
             ${this.dms.map((dm) => {
               const name = this._getNodeName(dm) || dm;
+              const badge = this.unreadCounts?.[dm] || 0;
               return html`
                 <div
                   class="conversation-item ${selected === dm ? "active" : ""}"
                   @click=${() => this._selectConversation(dm)}
-                >${name}</div>
+                >${name}${badge > 0 ? html`<span class="conv-badge">${badge}</span>` : ""}</div>
               `;
             })}
           ` : ""}
@@ -611,6 +627,7 @@ export class MeshNodesTab extends LitElement {
       nodes: { type: Object },
       favoriteNodes: { type: Array },
       ignoredNodes: { type: Array },
+      pendingTraceroute: { type: String },
     };
   }
 
@@ -619,6 +636,7 @@ export class MeshNodesTab extends LitElement {
     this.nodes = {};
     this.favoriteNodes = [];
     this.ignoredNodes = [];
+    this.pendingTraceroute = null;
     this._searchText = "";
     this._filterLastHeard = "all";
     this._filterBatteryMin = 0;
@@ -784,6 +802,15 @@ export class MeshNodesTab extends LitElement {
           text-transform: uppercase; letter-spacing: 1px;
           padding: 12px 20px 4px; font-weight: 600;
         }
+
+        .spinner {
+          display: inline-block; width: 14px; height: 14px;
+          border: 2px solid var(--divider-color);
+          border-top-color: var(--primary-color);
+          border-radius: 50%; animation: spin 0.8s linear infinite;
+          vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         .table-scroll { overflow-x: auto; }
 
@@ -1106,8 +1133,12 @@ export class MeshNodesTab extends LitElement {
             <button class="action-btn primary" @click=${() => this._fireNodeAction("send-message", nodeId)}>
               <ha-icon icon="mdi:message-text" style="--mdc-icon-size: 16px;"></ha-icon> Message
             </button>
-            <button class="action-btn secondary" @click=${() => this._fireNodeAction("trace-route", nodeId)}>
-              <ha-icon icon="mdi:routes" style="--mdc-icon-size: 16px;"></ha-icon> Trace Route
+            <button class="action-btn secondary"
+              ?disabled=${this.pendingTraceroute === nodeId}
+              @click=${() => this._fireNodeAction("trace-route", nodeId)}>
+              ${this.pendingTraceroute === nodeId
+                ? html`<span class="spinner"></span> Tracing...`
+                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size: 16px;"></ha-icon> Trace Route`}
             </button>
             <button class="action-btn secondary" @click=${() => this._fireNodeAction("request-position", nodeId)}>
               <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Position

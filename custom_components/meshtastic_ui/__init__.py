@@ -258,6 +258,44 @@ def _handle_text_message(
             {"type": "dm", "partner": sender_id, **message},
         )
 
+    # Send push notification if enabled
+    prefs = store.get_notification_prefs()
+    if prefs.get("enabled"):
+        msg_filter = prefs.get("filter", "all")
+        should_notify = (
+            msg_filter == "all"
+            or (msg_filter == "channel" and is_broadcast)
+            or (msg_filter == "dm" and not is_broadcast)
+        )
+        if should_notify:
+            service_target = prefs.get("service", "notify.notify")
+            parts = service_target.split(".", 1)
+            notify_domain = parts[0] if len(parts) > 1 else "notify"
+            notify_service = parts[1] if len(parts) > 1 else parts[0]
+            sender_name = store.get_nodes().get(sender_id, {}).get("name", sender_id)
+
+            async def _send_notification() -> None:
+                try:
+                    await hass.services.async_call(
+                        notify_domain,
+                        notify_service,
+                        {
+                            "title": sender_name,
+                            "message": text,
+                            "data": {
+                                "channel": channel_index,
+                                "from": sender_id,
+                                "timestamp": timestamp,
+                            },
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Failed to send notification via %s", service_target
+                    )
+
+            hass.async_create_task(_send_notification())
+
 
 @callback
 def _handle_delivery_ack(hass: HomeAssistant, packet: dict) -> None:

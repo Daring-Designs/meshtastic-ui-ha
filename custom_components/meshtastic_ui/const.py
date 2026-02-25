@@ -22,6 +22,7 @@ SIGNAL_CONNECTION_STATE = f"{DOMAIN}_connection_state"
 SIGNAL_DELIVERY_STATUS = f"{DOMAIN}_delivery_status"
 SIGNAL_WAYPOINT_UPDATE = f"{DOMAIN}_waypoint_update"
 SIGNAL_TRACEROUTE_RESULT = f"{DOMAIN}_traceroute_result"
+SIGNAL_NOTIFICATION_PREFS = f"{DOMAIN}_notification_prefs"
 
 # WebSocket command prefix
 WS_PREFIX = f"{DOMAIN}"

@@ -51,6 +51,11 @@ class MeshtasticUiStore:
         self._ignored_nodes: set[str] = set()
         self._waypoints: dict[int, dict[str, Any]] = {}  # wp_id -> waypoint data
         self._traceroutes: dict[str, dict[str, Any]] = {}  # node_id -> last traceroute
+        self._notification_prefs: dict[str, Any] = {
+            "enabled": False,
+            "service": "notify.notify",
+            "filter": "all",
+        }
 
     async def async_load(self) -> None:
         """Load stored data from disk."""
@@ -114,6 +119,11 @@ class MeshtasticUiStore:
         # Restore traceroutes
         self._traceroutes = data.get("traceroutes", {})
 
+        # Restore notification preferences
+        saved_prefs = data.get("notification_prefs")
+        if saved_prefs:
+            self._notification_prefs.update(saved_prefs)
+
     def _schedule_save(self) -> None:
         """Schedule a debounced save to disk."""
         self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
@@ -134,6 +144,7 @@ class MeshtasticUiStore:
             "ignored_nodes": list(self._ignored_nodes),
             "waypoints": {str(k): v for k, v in self._waypoints.items()},
             "traceroutes": self._traceroutes,
+            "notification_prefs": self._notification_prefs,
         }
 
     def add_channel_message(self, entity_id: str, message: dict[str, Any]) -> None:
@@ -305,6 +316,15 @@ class MeshtasticUiStore:
     def get_all_traceroutes(self) -> dict[str, dict[str, Any]]:
         """Get all stored traceroute results."""
         return dict(self._traceroutes)
+
+    def get_notification_prefs(self) -> dict[str, Any]:
+        """Get notification preferences."""
+        return dict(self._notification_prefs)
+
+    def set_notification_prefs(self, prefs: dict[str, Any]) -> None:
+        """Update notification preferences."""
+        self._notification_prefs.update(prefs)
+        self._schedule_save()
 
     def _check_date_rollover(self) -> None:
         """Reset daily counter if date has changed."""
