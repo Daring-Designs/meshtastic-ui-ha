@@ -1340,13 +1340,12 @@ export class MeshMapTab extends LitElement {
         }
         .layer-btn:hover { opacity: 0.85; }
 
-        @media (max-width: 600px) {
+        @media (max-width: 768px) {
           .map-controls {
             top: auto; bottom: 10px; left: 10px;
             max-width: calc(100% - 20px);
           }
           .map-info-badge {
-            top: 10px; right: 10px; left: auto;
             font-size: 11px; padding: 4px 8px;
           }
         }
