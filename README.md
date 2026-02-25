@@ -1,50 +1,150 @@
 # Meshtastic UI for Home Assistant
 
-A companion integration that adds a unified dashboard for your [Meshtastic](https://meshtastic.org) mesh network in Home Assistant. Works alongside the existing [Meshtastic integration](https://github.com/meshtastic/home-assistant) — no configuration overlap, no direct code dependency.
+A companion HACS integration that adds a full-featured dashboard for your [Meshtastic](https://meshtastic.org) mesh network in Home Assistant. Connects directly to your radio via TCP, Serial, or Bluetooth and provides messaging, node management, mapping, and complete radio configuration — all from the HA sidebar.
 
-## What It Does
+## Features
 
-**Meshtastic UI** adds a sidebar panel ("Mesh UI") with five tabs:
+### Radio Tab
 
-- **Radio** — Gateway status dashboard showing connection state, battery, airtime, packet counters, and channel configuration for each Meshtastic gateway
-- **Messages** — View channel and direct message history with a chat-style interface. Send messages right from HA. Messages persist across restarts.
-- **Nodes** — Sortable, searchable table of all mesh nodes with filters for last heard, battery level, and hop count. Click any node to open a detail dialog with identity, radio, power, environment, and position data. Action buttons let you send a direct message, trace route, or request position.
-- **Map** — Interactive map (Leaflet/OpenStreetMap) showing all nodes with GPS positions. Markers include popups with node info and a link to the detail dialog. Auto-fits bounds and shows a badge for nodes without position data.
-- **Stats** — At-a-glance summary cards: messages today, active nodes, total nodes, and channel count
+Gateway status dashboard showing connection state, hardware info, firmware version, uptime, battery, voltage, channel utilization, air utility TX, and packet counters (TX/RX/bad/relayed). Displays a channel table with name, index, role, PSK status, and uplink/downlink flags.
 
-It also creates two sensor entities:
-- `sensor.meshtastic_ui_messages_today` — Total messages received today
-- `sensor.meshtastic_ui_active_nodes` — Nodes seen in the last hour
+### Messages Tab
+
+Chat-style messaging interface for both channel broadcasts and direct messages. Conversations are listed in a sidebar with channels and DM threads. Messages show sender name, timestamp, and delivery status icons (pending, delivered, failed). Includes a byte counter (228-byte Meshtastic limit) on the input field. Messages persist across restarts.
+
+### Nodes Tab
+
+Sortable, searchable table of all mesh nodes. Columns include favorite star, name, SNR, RSSI, hops, battery, and last seen time. Expandable filter panel with last heard window, minimum battery, maximum hops, and favorites-only toggle. Ignored nodes display a badge.
+
+Click any node to open a detail dialog with identity, radio, power, environment, and position sections. Action buttons:
+
+- **Send Message** — opens a DM conversation
+- **Trace Route** — sends a traceroute request
+- **Request Position** — asks the node for a GPS update
+- **Favorite / Unfavorite**
+- **Ignore / Unignore**
+- **Remove Node** — deletes from the local database
+
+### Map Tab
+
+Interactive Leaflet/OpenStreetMap visualization with toggleable layers:
+
+- **Nodes** — green (recent) and orange (stale) circle markers with popups
+- **Waypoints** — blue diamond markers with name and description
+- **SNR Lines** — colored by signal quality (green to red)
+- **Traceroute Routes** — purple dashed lines showing mesh paths; click to see hop-by-hop details with SNR values
+
+Auto-fits bounds to visible nodes. Shows a badge counting nodes without position data.
+
+### Stats Tab
+
+At-a-glance summary cards: messages today, active nodes, total nodes, and channel count.
+
+### Settings Tab
+
+Complete radio configuration UI matching the Meshtastic web app. All changes are written directly to the radio.
+
+**Radio Config:**
+
+- **LoRa** — region (20+ options), modem preset, hop limit, TX power, bandwidth, spread factor, coding rate, frequency offset, TX enabled, boosted RX gain, override duty cycle
+- **Channels** — per-channel editor for all 8 slots: role, name, PSK (with generate), uplink/downlink, position precision
+
+**Device Config:**
+
+- **Owner** — long name, short name, licensed operator flag
+
+**Module Config (12 panels):**
+
+- **MQTT** — broker address/port/credentials, root topic, encryption, JSON, TLS, proxy to client, map reporting
+- **Serial** — baud rate, mode (default/simple/protobuf/text/NMEA/CalTopo), GPIO pins, timeout, echo
+- **External Notification** — output/vibra/buzzer GPIO, nag timeout, duration, alert triggers, PWM mode, polarity
+- **Store & Forward** — records count, history return max/window, heartbeat, server role
+- **Range Test** — sender interval, save to file
+- **Telemetry** — device/environment/air quality/power metric intervals and display toggles
+- **Canned Messages** — pipe-separated message list, input source (rotary encoder/up-down), GPIO pins, send channel
+- **Audio** — Codec2 enable/bitrate, PTT GPIO, I2S pin config
+- **Neighbor Info** — update interval
+- **Ambient Lighting** — LED state, RGB color, brightness
+- **Detection Sensor** — monitor pin, broadcast intervals, custom trigger messages, bell notification, pullup
+- **Paxcounter** — update interval, WiFi/BLE counting toggles
+
+**Device Actions:**
+
+- Reboot
+- Shutdown
+- Factory Reset Config
+- Factory Reset Device
+- Reset Node Database
+- Reboot OTA
+
+### Sensors
+
+Two sensor entities are created automatically:
+
+- `sensor.meshtastic_ui_messages_today` — messages received today
+- `sensor.meshtastic_ui_active_nodes` — nodes seen in the last hour
+
+### Real-Time Updates
+
+Five WebSocket subscriptions provide live updates without polling:
+
+- Incoming messages
+- Node status changes
+- Message delivery acknowledgements
+- Waypoint changes
+- Traceroute results
+
+### Data Persistence
+
+All data persists across Home Assistant restarts: messages (channel and DM), node database, favorites, ignored nodes, waypoints, traceroute results, and daily message counters.
+
+## Connection Types
+
+| Type | Details |
+|------|---------|
+| **TCP/IP** | Hostname + port (default 4403) |
+| **Serial** | USB device path (auto-detected) |
+| **Bluetooth** | BLE MAC address |
+
+Auto-reconnects with exponential backoff (5s to 5min) on connection loss.
 
 ## Prerequisites
 
-The [Meshtastic integration](https://github.com/meshtastic/home-assistant) (v0.6.1+) must be installed and have at least one gateway configured.
+- Home Assistant 2024.1+
+- A Meshtastic radio accessible via TCP, Serial, or BLE
+- The `meshtastic` Python package (installed automatically as a dependency)
 
 ## Installation
 
 ### HACS (Recommended)
 
 1. Open **HACS** in Home Assistant
-2. Click the three-dot menu → **Custom repositories**
+2. Click the three-dot menu > **Custom repositories**
 3. Add `https://github.com/Daring-Designs/meshtastic-ui-ha` with category **Integration**
 4. Find **Meshtastic UI** and click **Download**
 5. Restart Home Assistant
-6. Go to **Settings → Devices & Services → Add Integration** and search for **Meshtastic UI**
+6. Go to **Settings > Devices & Services > Add Integration** and search for **Meshtastic UI**
+7. Select your connection type and enter the connection details
 
 ### Manual
 
 Copy the `custom_components/meshtastic_ui` folder into your Home Assistant `config/custom_components/` directory, restart, and add the integration.
 
-## How It Works
+## Architecture
 
-This integration communicates with the existing Meshtastic integration entirely through Home Assistant's public APIs:
+```
+Frontend (Lit 4.x, ES modules)            Backend (Python, WebSocket API)
+───────────────────────────────            ────────────────────────────────
+ha_frontend/                               custom_components/meshtastic_ui/
+  panel.js    (shell + router)               connection.py  (radio I/O)
+  views.js    (5 tab components)             websocket_api.py (23 WS commands)
+  settings.js (config panels)                store.py (persistent storage)
+  modules.js  (module config panels)         config_flow.py (setup wizard)
+  components.js (shared form widgets)        sensor.py (HA sensor entities)
+  styles.js   (shared CSS)                   const.py (constants + signals)
+```
 
-- **Event bus** — Listens to `meshtastic_message_log` and `meshtastic_event` for real-time messages and node activity
-- **Device/Entity registry** — Discovers gateways and nodes automatically
-- **State machine** — Reads sensor values (SNR, battery, hops, etc.) from existing Meshtastic entities
-- **Services** — Sends messages by calling `meshtastic.broadcast_channel_message` and `meshtastic.send_direct_message`. Node actions (trace route, request position) are proxied through a secure service call handler that only allows `meshtastic` domain services.
-
-Message history and node data are stored locally and persist across HA restarts.
+The frontend is built with [Lit](https://lit.dev/) web components. The backend communicates with the radio through the [meshtastic](https://pypi.org/project/meshtastic/) Python library, with all blocking calls wrapped in `async_add_executor_job()`. Frontend and backend communicate exclusively via Home Assistant's WebSocket API.
 
 ## License
 
