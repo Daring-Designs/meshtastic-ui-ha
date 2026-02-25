@@ -15,12 +15,10 @@ MAX_DM_MESSAGES = 200
 NODE_RETENTION_DAYS = 7
 ACTIVE_NODE_WINDOW_SECONDS = 3600  # 1 hour
 
-# Events from meshtastic integration
-EVENT_MESHTASTIC_MESSAGE_LOG = "meshtastic_message_log"
-EVENT_MESHTASTIC_EVENT = "meshtastic_event"
-
 # Internal dispatcher signals
 SIGNAL_NEW_MESSAGE = f"{DOMAIN}_new_message"
+SIGNAL_NODE_UPDATE = f"{DOMAIN}_node_update"
+SIGNAL_CONNECTION_STATE = f"{DOMAIN}_connection_state"
 
 # WebSocket command prefix
 WS_PREFIX = f"{DOMAIN}"
@@ -30,3 +28,11 @@ PANEL_URL = "meshtastic-ui"
 PANEL_TITLE = "Mesh UI"
 PANEL_ICON = "mdi:radio-handheld"
 FRONTEND_PATH = "frontend"
+
+# Connection config keys
+CONF_CONNECTION_TYPE = "connection_type"
+CONF_TCP_HOSTNAME = "tcp_hostname"
+CONF_TCP_PORT = "tcp_port"
+CONF_SERIAL_DEV_PATH = "serial_dev_path"
+CONF_BLE_ADDRESS = "ble_address"
+DEFAULT_TCP_PORT = 4403

@@ -1152,9 +1152,9 @@ class MeshtasticUiPanel extends LitElement {
       return html`
         <div class="empty-state">
           <ha-icon icon="mdi:radio-handheld"></ha-icon>
-          <div>No Meshtastic gateways found</div>
+          <div>No Meshtastic radio connected</div>
           <div style="font-size: 13px; margin-top: 8px;">
-            Make sure the Meshtastic integration is configured.
+            Check the radio connection in the integration settings.
           </div>
         </div>
       `;

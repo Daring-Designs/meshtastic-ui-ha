@@ -112,6 +112,16 @@ class MeshtasticUiStore:
         self._nodes[node_id] = existing
         self._schedule_save()
 
+    def bulk_update_nodes(self, updates: dict[str, dict[str, Any]]) -> None:
+        """Bulk update or create multiple node entries efficiently."""
+        for node_id, data in updates.items():
+            existing = self._nodes.get(node_id, {})
+            existing.update(data)
+            if "_last_seen" not in existing:
+                existing["_last_seen"] = datetime.now(timezone.utc).isoformat()
+            self._nodes[node_id] = existing
+        self._schedule_save()
+
     def remove_node(self, node_id: str) -> None:
         """Remove a node entry."""
         if node_id in self._nodes:

@@ -1,10 +1,10 @@
 {
   "domain": "meshtastic_ui",
   "name": "Meshtastic UI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "documentation": "https://github.com/daringdesigns/meshtastic-ui-ha",
   "codeowners": ["@daringdesigns"],
-  "after_dependencies": ["meshtastic"],
+  "requirements": ["meshtastic>=2.5.0"],
   "dependencies": ["websocket_api", "http", "frontend"],
   "integration_type": "service",
   "iot_class": "local_push",

@@ -3,13 +3,39 @@
     "step": {
       "user": {
         "title": "Meshtastic UI",
-        "description": "This integration adds a unified dashboard for your Meshtastic mesh network. The Meshtastic integration must be installed and configured first.",
-        "data": {}
+        "description": "Connect directly to your Meshtastic radio. Choose a connection type.",
+        "data": {
+          "connection_type": "Connection type"
+        }
+      },
+      "tcp": {
+        "title": "TCP Connection",
+        "description": "Enter the IP address or hostname of your Meshtastic radio.",
+        "data": {
+          "tcp_hostname": "Hostname or IP address",
+          "tcp_port": "Port"
+        }
+      },
+      "serial": {
+        "title": "Serial Connection",
+        "description": "Enter the serial device path for your Meshtastic radio.",
+        "data": {
+          "serial_dev_path": "Device path"
+        }
+      },
+      "ble": {
+        "title": "Bluetooth Connection",
+        "description": "Enter the BLE address of your Meshtastic radio.",
+        "data": {
+          "ble_address": "BLE address"
+        }
       }
     },
+    "error": {
+      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on."
+    },
     "abort": {
-      "already_configured": "Meshtastic UI is already configured.",
-      "meshtastic_not_found": "The Meshtastic integration is not installed or has no configured entries. Please set up the Meshtastic integration first."
+      "already_configured": "Meshtastic UI is already configured."
     }
   }
 }

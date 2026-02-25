@@ -1,4 +1,4 @@
-"""Meshtastic UI — companion dashboard integration."""
+"""Meshtastic UI — companion dashboard integration (direct radio connection)."""
 
 from __future__ import annotations
 
@@ -7,15 +7,21 @@ from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from .connection import ConnectionState, ConnectionType, MeshtasticConnection
 from .const import (
+    CONF_BLE_ADDRESS,
+    CONF_CONNECTION_TYPE,
+    CONF_SERIAL_DEV_PATH,
+    CONF_TCP_HOSTNAME,
+    CONF_TCP_PORT,
+    DEFAULT_TCP_PORT,
     DOMAIN,
-    EVENT_MESHTASTIC_EVENT,
-    EVENT_MESHTASTIC_MESSAGE_LOG,
+    SIGNAL_CONNECTION_STATE,
     SIGNAL_NEW_MESSAGE,
+    SIGNAL_NODE_UPDATE,
 )
 from .frontend import async_register_panel, async_unregister_panel
 from .store import MeshtasticUiStore
@@ -37,22 +43,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = MeshtasticUiStore(hass)
     await store.async_load()
 
+    # Create the radio connection
+    connection = _create_connection(hass, entry.data)
+
     hass.data[DOMAIN] = {
         "store": store,
-        "unsub_listeners": [],
+        "connection": connection,
+        "unsub_callbacks": [],
     }
+
+    # Register radio callbacks
+    _register_radio_callbacks(hass, store, connection)
+
+    # Connect to the radio
+    try:
+        await connection.async_connect()
+    except Exception:  # noqa: BLE001
+        _LOGGER.error("Initial connection to Meshtastic radio failed; will retry")
+
+    # Sync nodes from radio's mesh database
+    _sync_nodes_from_radio(store, connection)
 
     # Register WebSocket API
     async_register_websocket_api(hass)
 
     # Register frontend panel
     await async_register_panel(hass)
-
-    # Set up event listeners
-    _setup_event_listeners(hass, store)
-
-    # Initial node scan from device registry
-    await _async_scan_nodes(hass, store)
 
     # Set up sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -66,260 +82,233 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         data = hass.data.pop(DOMAIN, {})
-        for unsub in data.get("unsub_listeners", []):
+        for unsub in data.get("unsub_callbacks", []):
             unsub()
+        connection: MeshtasticConnection | None = data.get("connection")
+        if connection is not None:
+            await connection.async_disconnect()
         async_unregister_panel(hass)
 
     return unload_ok
 
 
+def _create_connection(
+    hass: HomeAssistant, config_data: dict[str, Any]
+) -> MeshtasticConnection:
+    """Create a MeshtasticConnection from config entry data."""
+    conn_type = ConnectionType(config_data[CONF_CONNECTION_TYPE])
+
+    if conn_type == ConnectionType.TCP:
+        return MeshtasticConnection(
+            hass,
+            conn_type,
+            hostname=config_data[CONF_TCP_HOSTNAME],
+            port=config_data.get(CONF_TCP_PORT, DEFAULT_TCP_PORT),
+        )
+    if conn_type == ConnectionType.SERIAL:
+        return MeshtasticConnection(
+            hass,
+            conn_type,
+            serial_path=config_data[CONF_SERIAL_DEV_PATH],
+        )
+    if conn_type == ConnectionType.BLE:
+        return MeshtasticConnection(
+            hass,
+            conn_type,
+            ble_address=config_data[CONF_BLE_ADDRESS],
+        )
+
+    raise ValueError(f"Unknown connection type: {conn_type}")
+
+
 @callback
-def _setup_event_listeners(hass: HomeAssistant, store: MeshtasticUiStore) -> None:
-    """Subscribe to meshtastic events."""
-    unsub_listeners = hass.data[DOMAIN]["unsub_listeners"]
-    ent_reg = er.async_get(hass)
-    dev_reg = dr.async_get(hass)
+def _register_radio_callbacks(
+    hass: HomeAssistant,
+    store: MeshtasticUiStore,
+    connection: MeshtasticConnection,
+) -> None:
+    """Wire radio callbacks to the store and dispatcher."""
+    unsub_callbacks = hass.data[DOMAIN]["unsub_callbacks"]
 
     @callback
-    def _handle_message_log(event: Event) -> None:
-        """Handle meshtastic_message_log events."""
-        data = event.data
-        timestamp = datetime.now(timezone.utc).isoformat()
+    def _on_packet(packet: dict) -> None:
+        """Handle a received packet from the radio."""
+        decoded = packet.get("decoded", {})
+        portnum = decoded.get("portnum")
 
-        message: dict[str, Any] = {
-            "text": data.get("text", ""),
-            "from": data.get("from", ""),
-            "to": data.get("to", ""),
-            "timestamp": timestamp,
-            "channel": data.get("channel"),
-            "gateway": data.get("gateway"),
-        }
+        if portnum == "TEXT_MESSAGE_APP":
+            _handle_text_message(hass, store, packet)
 
-        # Track the sender as a node
-        sender = data.get("from")
-        if sender:
+        # Track sender as a node
+        sender_id = packet.get("fromId")
+        if sender_id:
             node_update: dict[str, Any] = {
-                "_last_seen": timestamp,
+                "_last_seen": datetime.now(timezone.utc).isoformat(),
             }
-            if data.get("snr") is not None:
-                node_update["snr"] = data["snr"]
-            if data.get("hops") is not None:
-                node_update["hops"] = data["hops"]
-            if data.get("rssi") is not None:
-                node_update["rssi"] = data["rssi"]
-            store.update_node(str(sender), node_update)
-
-        pki = data.get("pki", False)
-        if pki:
-            # DM — key by partner entity_id or node id
-            partner = data.get("from", "unknown")
-            store.add_dm_message(partner, message)
-            async_dispatcher_send(
-                hass, SIGNAL_NEW_MESSAGE, {"type": "dm", "partner": partner, **message}
-            )
-        else:
-            # Channel message — key by channel entity_id or channel name
-            channel_id = data.get("channel", "default")
-            store.add_channel_message(channel_id, message)
-            async_dispatcher_send(
-                hass,
-                SIGNAL_NEW_MESSAGE,
-                {"type": "channel", "channel": channel_id, **message},
-            )
+            if "snr" in packet:
+                node_update["snr"] = packet["snr"]
+            if "hopStart" in packet and "hopLimit" in packet:
+                node_update["hops"] = packet["hopStart"] - packet["hopLimit"]
+            elif "hopsAway" in packet:
+                node_update["hops"] = packet["hopsAway"]
+            if "rssi" in packet:
+                node_update["rssi"] = packet["rssi"]
+            store.update_node(sender_id, node_update)
 
     @callback
-    def _handle_meshtastic_event(event: Event) -> None:
-        """Handle meshtastic_event for node activity tracking."""
-        data = event.data
-        node_id = data.get("node_id") or data.get("from")
-        if not node_id:
+    def _on_node_update(node: dict) -> None:
+        """Handle a node update from the radio's node database."""
+        node_num = node.get("num")
+        if node_num is None:
             return
 
-        update: dict[str, Any] = {"_last_seen": datetime.now(timezone.utc).isoformat()}
-        event_type = data.get("type", "")
-        if event_type:
-            update["last_event_type"] = event_type
-
-        # Capture all available node fields from the event
-        field_map = {
-            "name": "name",
-            "long_name": "name",
-            "short_name": "short_name",
-            "hardware": "hardware_model",
-            "hardware_model": "hardware_model",
-            "snr": "snr",
-            "rssi": "rssi",
-            "hops": "hops",
-            "battery": "battery",
-            "voltage": "voltage",
-            "latitude": "latitude",
-            "longitude": "longitude",
-            "altitude": "altitude",
-            "temperature": "temperature",
-            "humidity": "humidity",
-            "pressure": "pressure",
-            "air_util_tx": "air_util_tx",
-            "channel_utilization": "channel_utilization",
-            "uptime": "uptime",
-        }
-        for event_key, store_key in field_map.items():
-            if event_key in data and data[event_key] is not None:
-                update[store_key] = data[event_key]
-
-        store.update_node(str(node_id), update)
+        node_id = _num_to_id(node_num)
+        data = _extract_node_data(node)
+        store.update_node(node_id, data)
+        async_dispatcher_send(hass, SIGNAL_NODE_UPDATE, node_id)
 
     @callback
-    def _handle_state_changed(event: Event) -> None:
-        """Capture telemetry updates from meshtastic sensors."""
-        entity_id = event.data.get("entity_id", "")
-        if not entity_id.startswith("sensor.meshtastic_"):
-            return
+    def _on_connection_state_change(
+        new_state: ConnectionState, old_state: ConnectionState
+    ) -> None:
+        """Handle connection state changes."""
+        _LOGGER.info(
+            "Meshtastic connection: %s -> %s", old_state, new_state
+        )
+        async_dispatcher_send(hass, SIGNAL_CONNECTION_STATE, new_state)
 
-        new_state = event.data.get("new_state")
-        if new_state is None:
-            return
+        if new_state == ConnectionState.CONNECTED and old_state in (
+            ConnectionState.RECONNECTING,
+            ConnectionState.CONNECTING,
+        ):
+            # Re-sync nodes on reconnect
+            _sync_nodes_from_radio(store, connection)
 
-        # Use entity/device registry to reliably find the node ID
-        ent_entry = ent_reg.async_get(entity_id)
-        if not ent_entry or not ent_entry.device_id:
-            return
-        device = dev_reg.async_get(ent_entry.device_id)
-        if not device:
-            return
-
-        node_id = None
-        for ident in device.identifiers:
-            if ident[0] == "meshtastic":
-                node_id = ident[1] if len(ident) > 1 else None
-                break
-        if not node_id:
-            return
-
-        sensor_type = _extract_sensor_type(entity_id)
-        if sensor_type:
-            store.update_node(node_id, {sensor_type: new_state.state})
-
-    unsub_listeners.append(
-        hass.bus.async_listen(EVENT_MESHTASTIC_MESSAGE_LOG, _handle_message_log)
-    )
-    unsub_listeners.append(
-        hass.bus.async_listen(EVENT_MESHTASTIC_EVENT, _handle_meshtastic_event)
-    )
-    unsub_listeners.append(
-        hass.bus.async_listen("state_changed", _handle_state_changed)
+    unsub_callbacks.append(connection.register_message_callback(_on_packet))
+    unsub_callbacks.append(connection.register_node_update_callback(_on_node_update))
+    unsub_callbacks.append(
+        connection.register_connection_change_callback(_on_connection_state_change)
     )
 
 
-async def _async_scan_nodes(hass: HomeAssistant, store: MeshtasticUiStore) -> None:
-    """Scan device registry for meshtastic nodes and read their sensor states."""
-    dev_reg = dr.async_get(hass)
-    ent_reg = er.async_get(hass)
+@callback
+def _handle_text_message(
+    hass: HomeAssistant, store: MeshtasticUiStore, packet: dict
+) -> None:
+    """Parse a text message packet and route to channel or DM store."""
+    decoded = packet.get("decoded", {})
+    text = decoded.get("text", "")
+    if not text:
+        return
 
-    scanned_ids: set[str] = set()
+    sender_id = packet.get("fromId", "unknown")
+    to_id = packet.get("toId", "")
+    channel_index = packet.get("channel", 0)
+    timestamp = datetime.now(timezone.utc).isoformat()
 
-    for device in dev_reg.devices.values():
-        node_id = None
-        for ident in device.identifiers:
-            if ident[0] == "meshtastic":
-                node_id = ident[1] if len(ident) > 1 else None
-                break
+    message: dict[str, Any] = {
+        "text": text,
+        "from": sender_id,
+        "to": to_id,
+        "timestamp": timestamp,
+        "channel": channel_index,
+    }
 
-        if node_id is None:
+    # Broadcast destinations: ^all or !ffffffff
+    is_broadcast = to_id in ("^all", "!ffffffff", "")
+
+    if is_broadcast:
+        channel_key = str(channel_index)
+        store.add_channel_message(channel_key, message)
+        async_dispatcher_send(
+            hass,
+            SIGNAL_NEW_MESSAGE,
+            {"type": "channel", "channel": channel_key, **message},
+        )
+    else:
+        # DM — key by the other party's ID
+        store.add_dm_message(sender_id, message)
+        async_dispatcher_send(
+            hass,
+            SIGNAL_NEW_MESSAGE,
+            {"type": "dm", "partner": sender_id, **message},
+        )
+
+
+def _sync_nodes_from_radio(
+    store: MeshtasticUiStore, connection: MeshtasticConnection
+) -> None:
+    """Bulk import nodes from the radio's mesh database into the store."""
+    nodes = connection.nodes
+    if not nodes:
+        return
+
+    updates: dict[str, dict[str, Any]] = {}
+    for _key, node in nodes.items():
+        node_num = node.get("num")
+        if node_num is None:
             continue
+        node_id = _num_to_id(node_num)
+        updates[node_id] = _extract_node_data(node)
 
-        scanned_ids.add(node_id)
-
-        node_data: dict[str, Any] = {
-            "name": device.name or node_id,
-            "model": device.model or "",
-        }
-
-        # Read current sensor states for this device
-        entity_entries = er.async_entries_for_device(ent_reg, device.id)
-        for entity_entry in entity_entries:
-            if not entity_entry.entity_id.startswith("sensor."):
-                continue
-            state = hass.states.get(entity_entry.entity_id)
-            if state is None or state.state in ("unknown", "unavailable"):
-                continue
-            sensor_type = _extract_sensor_type(entity_entry.entity_id)
-            if sensor_type:
-                node_data[sensor_type] = state.state
-
-        store.update_node(node_id, node_data)
-
-    # Remove stale nodes that were created by buggy entity name parsing
-    # and don't correspond to any meshtastic device
-    stale_ids = [nid for nid in store.get_nodes() if nid not in scanned_ids
-                 and not nid.startswith("!")]
-    for stale_id in stale_ids:
-        store.remove_node(stale_id)
-
-    _LOGGER.debug("Initial node scan found %d meshtastic devices", store.total_nodes)
+    if updates:
+        store.bulk_update_nodes(updates)
+        _LOGGER.info("Synced %d nodes from radio mesh database", len(updates))
 
 
-def _extract_node_id_from_entity(entity_id: str) -> str | None:
-    """Extract node ID from a meshtastic sensor entity_id.
+def _extract_node_data(node: dict) -> dict[str, Any]:
+    """Extract normalized node data from a meshtastic node dict."""
+    data: dict[str, Any] = {
+        "_last_seen": datetime.now(timezone.utc).isoformat(),
+    }
 
-    Entity IDs follow the pattern: sensor.meshtastic_{node_id}_{sensor_type}
-    """
-    prefix = "sensor.meshtastic_"
-    if not entity_id.startswith(prefix):
-        return None
+    # User info
+    user = node.get("user", {})
+    if user.get("longName"):
+        data["name"] = user["longName"]
+    if user.get("shortName"):
+        data["short_name"] = user["shortName"]
+    if user.get("hwModel"):
+        data["hardware_model"] = user["hwModel"]
 
-    remainder = entity_id[len(prefix):]
-    # Node ID is everything up to the last underscore-separated sensor type
-    # Common sensor types: battery, snr, hops, voltage, air_util_tx, channel_util
-    known_suffixes = [
-        "battery",
-        "snr",
-        "hops",
-        "voltage",
-        "air_util_tx",
-        "channel_utilization",
-        "channel_util",
-        "uptime",
-        "temperature",
-        "humidity",
-        "pressure",
-        "latitude",
-        "longitude",
-        "altitude",
-        "rssi",
-    ]
-    for suffix in known_suffixes:
-        if remainder.endswith(f"_{suffix}"):
-            return remainder[: -(len(suffix) + 1)]
+    # Position
+    position = node.get("position", {})
+    if position.get("latitude") is not None:
+        data["latitude"] = position["latitude"]
+    if position.get("longitude") is not None:
+        data["longitude"] = position["longitude"]
+    if position.get("altitude") is not None:
+        data["altitude"] = position["altitude"]
 
-    return None
+    # Device metrics
+    metrics = node.get("deviceMetrics", {})
+    if metrics.get("batteryLevel") is not None:
+        data["battery"] = metrics["batteryLevel"]
+    if metrics.get("voltage") is not None:
+        data["voltage"] = metrics["voltage"]
+    if metrics.get("channelUtilization") is not None:
+        data["channel_utilization"] = metrics["channelUtilization"]
+    if metrics.get("airUtilTx") is not None:
+        data["air_util_tx"] = metrics["airUtilTx"]
+    if metrics.get("uptimeSeconds") is not None:
+        data["uptime"] = metrics["uptimeSeconds"]
+
+    # SNR / hops
+    if node.get("snr") is not None:
+        data["snr"] = node["snr"]
+    if node.get("hopsAway") is not None:
+        data["hops"] = node["hopsAway"]
+    if node.get("lastHeard") is not None:
+        try:
+            data["_last_seen"] = datetime.fromtimestamp(
+                node["lastHeard"], tz=timezone.utc
+            ).isoformat()
+        except (OSError, ValueError):
+            pass
+
+    return data
 
 
-def _extract_sensor_type(entity_id: str) -> str | None:
-    """Extract the sensor type suffix from a meshtastic sensor entity_id."""
-    prefix = "sensor.meshtastic_"
-    if not entity_id.startswith(prefix):
-        return None
-
-    remainder = entity_id[len(prefix):]
-    known_suffixes = [
-        "battery",
-        "snr",
-        "hops",
-        "voltage",
-        "air_util_tx",
-        "channel_utilization",
-        "channel_util",
-        "uptime",
-        "temperature",
-        "humidity",
-        "pressure",
-        "latitude",
-        "longitude",
-        "altitude",
-        "rssi",
-    ]
-    for suffix in known_suffixes:
-        if remainder.endswith(f"_{suffix}"):
-            return suffix
-
-    return None
+def _num_to_id(node_num: int) -> str:
+    """Convert a numeric node ID to the !hex format."""
+    return f"!{node_num:08x}"
