@@ -497,13 +497,13 @@ class MeshtasticConnection:
 
         def _execute() -> None:
             if action == "favorite":
-                iface.localNode.setFavorite(node_id, True)
+                iface.localNode.setFavorite(node_id)
             elif action == "unfavorite":
-                iface.localNode.setFavorite(node_id, False)
+                iface.localNode.removeFavorite(node_id)
             elif action == "ignore":
-                iface.localNode.setIgnored(node_id, True)
+                iface.localNode.setIgnored(node_id)
             elif action == "unignore":
-                iface.localNode.setIgnored(node_id, False)
+                iface.localNode.removeIgnored(node_id)
             elif action == "remove":
                 iface.localNode.removeNode(node_id)
             else:
