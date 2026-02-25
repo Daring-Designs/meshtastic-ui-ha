@@ -8,6 +8,9 @@ import {
 import "./views.js";
 import "./settings.js";
 
+const TS_POINTS = 360;      // data points per chart
+const TS_FLUSH_MS = 10000;  // 10s per bucket → 1 hour window
+
 const TABS = ["radio", "messages", "nodes", "map", "settings"];
 const TAB_LABELS = {
   radio: "Radio",
@@ -44,12 +47,7 @@ class MeshtasticUiPanel extends LitElement {
       _showNotificationModal: { type: Boolean },
       _nodeDialogId: { type: String },
       _nodeDialogFeedback: { type: String },
-      _chartWindow: { type: Number },
     };
-  }
-
-  get _chartInterval() {
-    return Math.max(2, Math.round(this._chartWindow / 150));
   }
 
   constructor() {
@@ -75,7 +73,6 @@ class MeshtasticUiPanel extends LitElement {
     this._showNotificationModal = false;
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
-    this._chartWindow = parseInt(localStorage.getItem("meshtastic_chart_window"), 10) || 300;
     this._timeSeries = this._restoreTimeSeries();
     this._tsAccumulators = { packetRx: 0, packetTx: 0 };
     this._tsSnapshots = { channelUtil: 0, airtimeTx: 0, battery: 0 };
@@ -91,7 +88,7 @@ class MeshtasticUiPanel extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this._loadData();
-    this._tsIntervalId = setInterval(() => this._flushTimeSeries(), this._chartInterval * 1000);
+    this._tsIntervalId = setInterval(() => this._flushTimeSeries(), TS_FLUSH_MS);
   }
 
   disconnectedCallback() {
@@ -180,30 +177,30 @@ class MeshtasticUiPanel extends LitElement {
 
   _restoreTimeSeries() {
     const empty = () => ({
-      channelUtil: new Float64Array(150),
-      airtimeTx: new Float64Array(150),
-      battery: new Float64Array(150),
-      packetTx: new Float64Array(150),
-      packetRx: new Float64Array(150),
+      channelUtil: new Float64Array(TS_POINTS),
+      airtimeTx: new Float64Array(TS_POINTS),
+      battery: new Float64Array(TS_POINTS),
+      packetTx: new Float64Array(TS_POINTS),
+      packetRx: new Float64Array(TS_POINTS),
     });
     try {
       const raw = localStorage.getItem("meshtastic_ts_data");
       if (!raw) return empty();
       const saved = JSON.parse(raw);
-      if (saved.window !== this._chartWindow) return empty();
-      const elapsed = Math.floor((Date.now() - saved.ts) / (this._chartInterval * 1000));
-      if (elapsed >= 150) return empty();
+      const elapsed = Math.floor((Date.now() - saved.ts) / TS_FLUSH_MS);
+      if (elapsed >= TS_POINTS) return empty();
       const ts = empty();
       for (const key of Object.keys(ts)) {
         const arr = saved.data?.[key];
-        if (!arr || arr.length !== 150) continue;
-        if (elapsed > 0) {
-          // Shift old data left by elapsed buckets, leaving recent buckets zeroed
-          for (let i = 0; i < 150 - elapsed; i++) {
-            ts[key][i] = arr[i + elapsed];
-          }
-        } else {
-          ts[key].set(arr);
+        if (!arr) continue;
+        const srcLen = arr.length;
+        // Keep only points that still fit in the window after elapsed time
+        const keepCount = Math.min(srcLen, TS_POINTS - elapsed);
+        if (keepCount <= 0) continue;
+        const srcStart = srcLen - keepCount;
+        const dstStart = TS_POINTS - elapsed - keepCount;
+        for (let i = 0; i < keepCount; i++) {
+          ts[key][dstStart + i] = arr[srcStart + i] || 0;
         }
       }
       return ts;
@@ -220,7 +217,6 @@ class MeshtasticUiPanel extends LitElement {
     }
     localStorage.setItem("meshtastic_ts_data", JSON.stringify({
       ts: Date.now(),
-      window: this._chartWindow,
       data,
     }));
   }
@@ -234,13 +230,14 @@ class MeshtasticUiPanel extends LitElement {
     }
     // Snapshot values — only record when new telemetry has arrived
     const dirty = this._tsSnapshotDirty;
-    ts.channelUtil[149] = dirty.channelUtil ? snap.channelUtil : 0;
-    ts.airtimeTx[149] = dirty.airtimeTx ? snap.airtimeTx : 0;
-    ts.battery[149] = dirty.battery ? snap.battery : 0;
+    const last = TS_POINTS - 1;
+    ts.channelUtil[last] = dirty.channelUtil ? snap.channelUtil : 0;
+    ts.airtimeTx[last] = dirty.airtimeTx ? snap.airtimeTx : 0;
+    ts.battery[last] = dirty.battery ? snap.battery : 0;
     this._tsSnapshotDirty = { channelUtil: false, airtimeTx: false, battery: false };
     // Counter values (reset each flush)
-    ts.packetTx[149] = acc.packetTx;
-    ts.packetRx[149] = acc.packetRx;
+    ts.packetTx[last] = acc.packetTx;
+    ts.packetRx[last] = acc.packetRx;
     this._tsAccumulators = { packetRx: 0, packetTx: 0 };
     // Create new typed-array copies so Lit detects reference changes in child charts
     this._timeSeries = {
@@ -405,24 +402,6 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   /* ── Event handlers from child components ── */
-
-  _onChartWindowChange(e) {
-    this._chartWindow = e.detail.window;
-    localStorage.setItem("meshtastic_chart_window", String(this._chartWindow));
-    // Reset time-series arrays
-    this._timeSeries = {
-      channelUtil: new Float64Array(150),
-      airtimeTx: new Float64Array(150),
-      battery: new Float64Array(150),
-      packetTx: new Float64Array(150),
-      packetRx: new Float64Array(150),
-    };
-    this._tsAccumulators = { packetRx: 0, packetTx: 0 };
-    this._tsSnapshotDirty = { channelUtil: false, airtimeTx: false, battery: false };
-    // Restart interval timer with new cadence
-    if (this._tsIntervalId) clearInterval(this._tsIntervalId);
-    this._tsIntervalId = setInterval(() => this._flushTimeSeries(), this._chartInterval * 1000);
-  }
 
   _onSelectConversation(e) {
     const conv = e.detail.conversation;
@@ -817,13 +796,7 @@ class MeshtasticUiPanel extends LitElement {
   _renderActiveTab() {
     switch (this._activeTab) {
       case "radio":
-        return html`<mesh-radio-tab
-          .gateways=${this._gateways}
-          .timeSeries=${this._timeSeries}
-          .chartWindow=${this._chartWindow}
-          .chartInterval=${this._chartInterval}
-          @chart-window-change=${this._onChartWindowChange}
-        ></mesh-radio-tab>`;
+        return html`<mesh-radio-tab .gateways=${this._gateways} .timeSeries=${this._timeSeries}></mesh-radio-tab>`;
       case "messages":
         return html`
           <mesh-messages-tab
