@@ -1196,7 +1196,7 @@ export class MeshNodesTab extends LitElement {
                 : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size: 16px;"></ha-icon> Trace Route`}
             </button>
             <button class="action-btn secondary" @click=${() => this._fireNodeAction("request-position", nodeId)}>
-              <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Position
+              <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Request Position
             </button>
             <button class="action-btn secondary" @click=${() => this._fireNodeAction(isIgn ? "unignore" : "ignore", nodeId)}>
               <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size: 16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}

@@ -414,9 +414,9 @@ class MeshtasticUiPanel extends LitElement {
         service: "request_position",
         service_data: { destination: nodeId },
       });
-      if (nodesTab) {
-        nodesTab.showFeedback(result?.success ? "Position request sent" : "Position request unavailable");
-      }
+      const msg = result?.success ? "Position request sent" : "Position request unavailable";
+      if (nodesTab) nodesTab.showFeedback(msg);
+      if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
     } else if (action === "favorite" || action === "unfavorite") {
       const result = await this._wsCommand("meshtastic_ui/node_admin", {
         node_id: nodeId, action,
@@ -908,7 +908,7 @@ class MeshtasticUiPanel extends LitElement {
                 : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size:16px;"></ha-icon> Trace Route`}
             </button>
             <button class="nd-btn" @click=${() => onAction("request-position")}>
-              <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Position
+              <ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Request Position
             </button>
             <button class="nd-btn" @click=${() => onAction(isIgn ? "unignore" : "ignore")}>
               <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size:16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
