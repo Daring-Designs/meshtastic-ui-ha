@@ -245,7 +245,7 @@ export class MeshRadioTab extends LitElement {
           <mesh-horizon-chart
             .data=${ts.battery}
             label="Battery"
-            colorScheme="Greens"
+            colorMode="value"
             .maxValue=${100}
             unit="%"
             .bucketInterval=${10}
@@ -1783,6 +1783,7 @@ class MeshHorizonChart extends LitElement {
       data: { type: Object },
       label: { type: String },
       colorScheme: { type: String },
+      colorMode: { type: String },  // "bands" (default) or "value" (per-bar color from value)
       bands: { type: Number },
       height: { type: Number },
       maxValue: { type: Number },
@@ -1798,6 +1799,7 @@ class MeshHorizonChart extends LitElement {
     this.data = null;
     this.label = "";
     this.colorScheme = "Blues";
+    this.colorMode = "bands";
     this.bands = 4;
     this.height = 64;
     this.maxValue = 0;
@@ -1898,21 +1900,36 @@ class MeshHorizonChart extends LitElement {
     const visible = Math.min(len, Math.floor(w / colW));
     const startIdx = len - visible;
 
-    const scheme = d3[`scheme${this.colorScheme}`];
-    const colors = scheme && scheme[Math.max(3, this.bands + 1)]
-      ? scheme[Math.max(3, this.bands + 1)].slice(1, this.bands + 1)
-      : d3.schemeBlues[Math.max(3, this.bands + 1)].slice(1, this.bands + 1);
+    const useValueColor = this.colorMode === "value";
+    let colors;
+    if (!useValueColor) {
+      const scheme = d3[`scheme${this.colorScheme}`];
+      colors = scheme && scheme[Math.max(3, this.bands + 1)]
+        ? scheme[Math.max(3, this.bands + 1)].slice(1, this.bands + 1)
+        : d3.schemeBlues[Math.max(3, this.bands + 1)].slice(1, this.bands + 1);
+    }
 
     for (let i = 0; i < visible; i++) {
       const val = Math.min(arr[startIdx + i], max);
+      if (val <= 0) continue;
       const totalH = (val / max) * h;
-      let drawn = 0;
 
-      for (let b = 0; b < this.bands && drawn < totalH; b++) {
-        const layerH = Math.min(totalH - drawn, bandH);
-        ctx.fillStyle = colors[b];
-        ctx.fillRect(i * colW, h - drawn - layerH, colW + 0.5, layerH);
-        drawn += layerH;
+      if (useValueColor) {
+        // Single color per bar based on value percentage (red → orange → green)
+        const pct = val / max;
+        const r = pct < 0.5 ? 220 : Math.round(220 - (pct - 0.5) * 2 * 180);
+        const g = pct < 0.5 ? Math.round(60 + pct * 2 * 140) : 200;
+        const b2 = 40;
+        ctx.fillStyle = `rgb(${r},${g},${b2})`;
+        ctx.fillRect(i * colW, h - totalH, colW + 0.5, totalH);
+      } else {
+        let drawn = 0;
+        for (let b = 0; b < this.bands && drawn < totalH; b++) {
+          const layerH = Math.min(totalH - drawn, bandH);
+          ctx.fillStyle = colors[b];
+          ctx.fillRect(i * colW, h - drawn - layerH, colW + 0.5, layerH);
+          drawn += layerH;
+        }
       }
     }
 
