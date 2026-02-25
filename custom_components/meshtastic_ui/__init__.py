@@ -36,6 +36,14 @@ from .store import MeshtasticUiStore, normalize_node_id
 from .websocket_api import async_register_websocket_api
 
 _TS_SERIES_KEYS = ("channelUtil", "airtimeTx", "battery", "packetTx", "packetRx")
+_PACKET_TYPE_KEYS = ("text", "position", "telemetry", "nodeinfo", "routing", "other")
+_PORTNUM_MAP = {
+    "TEXT_MESSAGE_APP": "text",
+    "POSITION_APP": "position",
+    "TELEMETRY_APP": "telemetry",
+    "NODEINFO_APP": "nodeinfo",
+    "ROUTING_APP": "routing",
+}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,8 +73,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "pending_acks": {},  # packet_id -> message info for delivery tracking
         "ts": {
             "data": {k: deque([0.0] * TS_POINTS, maxlen=TS_POINTS) for k in _TS_SERIES_KEYS},
+            "packetTypes": {k: deque([0.0] * TS_POINTS, maxlen=TS_POINTS) for k in _PACKET_TYPE_KEYS},
             "snapshots": {"channelUtil": 0.0, "airtimeTx": 0.0, "battery": 0.0},
             "accumulators": {"packetTx": 0, "packetRx": 0},
+            "packetTypeAccum": {k: 0 for k in _PACKET_TYPE_KEYS},
             "local_node_num": None,
         },
     }
@@ -98,6 +108,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data["packetTx"].append(acc["packetTx"])
         data["packetRx"].append(acc["packetRx"])
         ts["accumulators"] = {"packetTx": 0, "packetRx": 0}
+        # Per-type packet breakdown
+        pt = ts["packetTypes"]
+        pta = ts["packetTypeAccum"]
+        for k in _PACKET_TYPE_KEYS:
+            pt[k].append(pta[k])
+        ts["packetTypeAccum"] = {k: 0 for k in _PACKET_TYPE_KEYS}
 
     unsub_ts = async_track_time_interval(
         hass, _flush_timeseries, timedelta(seconds=TS_FLUSH_SECONDS)
@@ -189,6 +205,8 @@ def _register_radio_callbacks(
             local_id = _num_to_id(local_num) if local_num else None
             if sender_id and sender_id != local_id:
                 ts["accumulators"]["packetRx"] += 1
+                ptype = _PORTNUM_MAP.get(portnum, "other")
+                ts["packetTypeAccum"][ptype] += 1
 
         if portnum == "TEXT_MESSAGE_APP":
             _LOGGER.debug("Text message: %r", decoded.get("text", "")[:50])

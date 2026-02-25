@@ -829,9 +829,11 @@ def ws_get_timeseries(
     if ts is None:
         connection.send_result(msg["id"], {"timeseries": None})
         return
+    packet_types = ts.get("packetTypes")
     connection.send_result(
         msg["id"],
         {
             "timeseries": {k: list(v) for k, v in ts["data"].items()},
+            "packetTypes": {k: list(v) for k, v in packet_types.items()} if packet_types else None,
         },
     )

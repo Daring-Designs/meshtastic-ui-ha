@@ -39,6 +39,7 @@ class MeshtasticUiPanel extends LitElement {
       _traceroutes: { type: Object },
       _localNodeId: { type: String },
       _timeSeries: { type: Object },
+      _packetTypes: { type: Object },
       _pendingTraceroute: { type: String },
       _tracerouteDialog: { type: Object },
       _unreadCounts: { type: Object },
@@ -73,6 +74,7 @@ class MeshtasticUiPanel extends LitElement {
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
     this._timeSeries = null;
+    this._packetTypes = null;
     this._tsPollingId = null;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -180,6 +182,9 @@ class MeshtasticUiPanel extends LitElement {
     const result = await this._wsCommand("meshtastic_ui/get_timeseries");
     if (result?.timeseries) {
       this._timeSeries = result.timeseries;
+    }
+    if (result?.packetTypes) {
+      this._packetTypes = result.packetTypes;
     }
   }
 
@@ -720,7 +725,7 @@ class MeshtasticUiPanel extends LitElement {
   _renderActiveTab() {
     switch (this._activeTab) {
       case "radio":
-        return html`<mesh-radio-tab .gateways=${this._gateways} .timeSeries=${this._timeSeries}></mesh-radio-tab>`;
+        return html`<mesh-radio-tab .gateways=${this._gateways} .timeSeries=${this._timeSeries} .packetTypes=${this._packetTypes}></mesh-radio-tab>`;
       case "messages":
         return html`
           <mesh-messages-tab

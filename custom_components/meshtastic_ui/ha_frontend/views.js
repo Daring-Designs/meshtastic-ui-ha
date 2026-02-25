@@ -118,6 +118,7 @@ export class MeshRadioTab extends LitElement {
     return {
       gateways: { type: Array },
       timeSeries: { type: Object },
+      packetTypes: { type: Object },
     };
   }
 
@@ -125,6 +126,7 @@ export class MeshRadioTab extends LitElement {
     super();
     this.gateways = [];
     this.timeSeries = null;
+    this.packetTypes = null;
   }
 
   static get styles() {
@@ -251,18 +253,24 @@ export class MeshRadioTab extends LitElement {
           <mesh-horizon-chart
             .data=${ts.packetTx}
             label="Packets TX"
-            colorScheme="Purples"
+            colorMode="flat"
+            flatColor="#9575cd"
             unit="pkts/10s"
             .bucketInterval=${10}
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.packetRx}
             label="Packets RX"
-            colorScheme="Reds"
+            colorMode="flat"
+            flatColor="#e57373"
             unit="pkts/10s"
             .bucketInterval=${10}
           ></mesh-horizon-chart>
         </div>
+        ${this.packetTypes ? html`
+          <div class="charts-heading">Packets by Type</div>
+          <mesh-packet-treemap .data=${this.packetTypes}></mesh-packet-treemap>
+        ` : ""}
       ` : ""}
     `;
   }
@@ -1781,7 +1789,8 @@ class MeshHorizonChart extends LitElement {
       data: { type: Object },
       label: { type: String },
       colorScheme: { type: String },
-      colorMode: { type: String },  // "bands" (default) or "value" (per-bar color from value)
+      colorMode: { type: String },  // "bands" (default), "value" (red→green), or "flat" (single color)
+      flatColor: { type: String },
       bands: { type: Number },
       height: { type: Number },
       maxValue: { type: Number },
@@ -1798,6 +1807,7 @@ class MeshHorizonChart extends LitElement {
     this.label = "";
     this.colorScheme = "Blues";
     this.colorMode = "bands";
+    this.flatColor = "#90caf9";
     this.bands = 4;
     this.height = 64;
     this.maxValue = 0;
@@ -1906,9 +1916,9 @@ class MeshHorizonChart extends LitElement {
     const visible = Math.min(len, Math.floor(w / colW));
     const startIdx = len - visible;
 
-    const useValueColor = this.colorMode === "value";
+    const mode = this.colorMode;
     let colors;
-    if (!useValueColor) {
+    if (mode === "bands") {
       const scheme = d3[`scheme${this.colorScheme}`];
       colors = scheme && scheme[Math.max(3, this.bands + 1)]
         ? scheme[Math.max(3, this.bands + 1)].slice(1, this.bands + 1)
@@ -1920,13 +1930,14 @@ class MeshHorizonChart extends LitElement {
       if (val <= 0) continue;
       const totalH = (val / max) * h;
 
-      if (useValueColor) {
-        // Single color per bar based on value percentage (red → orange → green)
+      if (mode === "value") {
         const pct = val / max;
         const r = pct < 0.5 ? 220 : Math.round(220 - (pct - 0.5) * 2 * 180);
         const g = pct < 0.5 ? Math.round(60 + pct * 2 * 140) : 200;
-        const b2 = 40;
-        ctx.fillStyle = `rgb(${r},${g},${b2})`;
+        ctx.fillStyle = `rgb(${r},${g},40)`;
+        ctx.fillRect(i * colW, h - totalH, colW + 0.5, totalH);
+      } else if (mode === "flat") {
+        ctx.fillStyle = this.flatColor;
         ctx.fillRect(i * colW, h - totalH, colW + 0.5, totalH);
       } else {
         let drawn = 0;
@@ -2055,3 +2066,170 @@ class MeshHorizonChart extends LitElement {
 }
 customElements.define("mesh-horizon-chart", MeshHorizonChart);
 
+
+/* ── Packet Type Treemap ── */
+
+const PACKET_TYPE_COLORS = {
+  text: "#42a5f5",
+  position: "#66bb6a",
+  telemetry: "#ffa726",
+  nodeinfo: "#ab47bc",
+  routing: "#78909c",
+  other: "#8d6e63",
+};
+const PACKET_TYPE_LABELS = {
+  text: "Text",
+  position: "Position",
+  telemetry: "Telemetry",
+  nodeinfo: "Node Info",
+  routing: "Routing",
+  other: "Other",
+};
+
+class MeshPacketTreemap extends LitElement {
+  static get properties() {
+    return {
+      data: { type: Object },
+      _d3Ready: { type: Boolean },
+    };
+  }
+
+  constructor() {
+    super();
+    this.data = null;
+    this._d3Ready = false;
+    this._resizeObserver = null;
+    this._containerWidth = 0;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    loadD3().then(() => { this._d3Ready = true; });
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+  }
+
+  firstUpdated() {
+    const container = this.shadowRoot.querySelector(".treemap-wrap");
+    if (container) {
+      this._resizeObserver = new ResizeObserver((entries) => {
+        const w = entries[0].contentRect.width;
+        if (w > 0 && w !== this._containerWidth) {
+          this._containerWidth = w;
+          this.requestUpdate();
+        }
+      });
+      this._resizeObserver.observe(container);
+    }
+  }
+
+  updated(changed) {
+    if (changed.has("data") || changed.has("_d3Ready")) {
+      this._drawTreemap();
+    }
+  }
+
+  _drawTreemap() {
+    if (!this._d3Ready || !this.data || !window.d3) return;
+    const container = this.shadowRoot.querySelector(".treemap-wrap");
+    if (!container) return;
+
+    const w = this._containerWidth || container.clientWidth || 300;
+    const h = 140;
+    const d3 = window.d3;
+
+    // Sum each type across the entire time window
+    const children = [];
+    for (const [key, arr] of Object.entries(this.data)) {
+      const total = arr.reduce((s, v) => s + v, 0);
+      if (total > 0) {
+        children.push({ key, total, label: PACKET_TYPE_LABELS[key] || key, color: PACKET_TYPE_COLORS[key] || "#888" });
+      }
+    }
+
+    // Clear previous
+    container.innerHTML = "";
+
+    if (children.length === 0) {
+      container.style.height = `${h}px`;
+      container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--secondary-text-color);font-size:13px;">No packets received yet</div>`;
+      return;
+    }
+
+    const grandTotal = children.reduce((s, c) => s + c.total, 0);
+
+    // Build hierarchy for d3.treemap
+    const root = d3.hierarchy({ children })
+      .sum((d) => d.total)
+      .sort((a, b) => b.value - a.value);
+
+    d3.treemap()
+      .size([w, h])
+      .padding(2)
+      .round(true)(root);
+
+    container.style.height = `${h}px`;
+    container.style.position = "relative";
+
+    for (const leaf of root.leaves()) {
+      const d = leaf.data;
+      const lw = leaf.x1 - leaf.x0;
+      const lh = leaf.y1 - leaf.y0;
+      const pct = ((d.total / grandTotal) * 100).toFixed(1);
+
+      const el = document.createElement("div");
+      el.style.cssText = `
+        position:absolute;
+        left:${leaf.x0}px;top:${leaf.y0}px;
+        width:${lw}px;height:${lh}px;
+        background:${d.color};
+        border-radius:4px;
+        overflow:hidden;
+        display:flex;flex-direction:column;
+        justify-content:center;align-items:center;
+        color:#fff;font-size:${lw < 60 ? 9 : 12}px;
+        text-shadow:0 1px 2px rgba(0,0,0,0.5);
+        line-height:1.3;
+      `;
+
+      if (lw > 40 && lh > 24) {
+        el.innerHTML = `<strong>${d.label}</strong>`;
+        if (lh > 40) el.innerHTML += `<span style="font-size:${lw < 60 ? 8 : 10}px;opacity:0.9">${d.total} (${pct}%)</span>`;
+      }
+
+      container.appendChild(el);
+    }
+  }
+
+  static get styles() {
+    return css`
+      :host { display: block; }
+      .chart-container {
+        background: var(--card-background-color);
+        border-radius: 12px;
+        border: 1px solid var(--divider-color);
+        padding: 12px 16px;
+      }
+      .treemap-wrap {
+        width: 100%;
+        position: relative;
+        min-height: 140px;
+      }
+    `;
+  }
+
+  render() {
+    return html`
+      <div class="chart-container">
+        <div class="treemap-wrap"></div>
+      </div>
+    `;
+  }
+}
+customElements.define("mesh-packet-treemap", MeshPacketTreemap);
