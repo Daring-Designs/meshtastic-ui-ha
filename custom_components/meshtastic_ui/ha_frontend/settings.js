@@ -2,7 +2,7 @@ import {
   LitElement,
   html,
   css,
-} from "https://unpkg.com/lit-element@4.1.1/lit-element.js?module";
+} from "./vendor/lit/lit-element.js";
 import "./components.js";
 import "./modules.js";
 import {

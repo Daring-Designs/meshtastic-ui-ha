@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -131,6 +132,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for k in _PACKET_TYPE_KEYS:
             pt[k].append(pta[k])
         ts["packetTypeAccum"] = {k: 0 for k in _PACKET_TYPE_KEYS}
+        # Prune stale pending_acks (older than 5 minutes)
+        now = time.time()
+        pending = hass.data[DOMAIN].get("pending_acks", {})
+        stale = [k for k, v in pending.items() if now - v.get("_ts", 0) > 300]
+        for k in stale:
+            del pending[k]
 
     unsub_ts = async_track_time_interval(
         hass, _flush_timeseries, timedelta(seconds=TS_FLUSH_SECONDS)

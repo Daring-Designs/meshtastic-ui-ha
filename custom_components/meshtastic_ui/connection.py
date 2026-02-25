@@ -423,7 +423,7 @@ class MeshtasticConnection:
 
         await self._hass.async_add_executor_job(_write)
 
-    async def async_device_action(self, action: str, **kwargs: Any) -> None:
+    async def async_device_action(self, action: str, *, seconds: int = 5) -> None:
         """Execute a device action (reboot, shutdown, factory reset, etc)."""
         if self._interface is None:
             raise RuntimeError("Not connected to radio")
@@ -433,16 +433,16 @@ class MeshtasticConnection:
         def _execute() -> None:
             node = iface.localNode
             if action == "reboot":
-                node.reboot(kwargs.get("seconds", 5))
+                node.reboot(seconds)
             elif action == "shutdown":
-                node.shutdown(kwargs.get("seconds", 5))
+                node.shutdown(seconds)
             elif action == "factory_reset_config":
                 node.factoryReset()
             elif action == "factory_reset_device":
                 node.factoryReset()
                 node.resetNodeDb()
             elif action == "reboot_ota":
-                node.rebootOTA(kwargs.get("seconds", 5))
+                node.rebootOTA(seconds)
             elif action == "reset_nodedb":
                 node.resetNodeDb()
             else:

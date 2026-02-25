@@ -1,0 +1,32 @@
+{
+  "name": "meshtastic-ui-ha",
+  "version": "1.0.0",
+  "description": "> **Beta / Work in Progress** — This integration is under active development. Expect rough edges and breaking changes. If you run into issues, please [open an issue on GitHub](https://github.com/Daring-Designs/meshtastic-ui-ha/issues).",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:lit && npm run build:leaflet && npm run build:d3",
+    "build:lit": "vite build",
+    "build:leaflet": "cp node_modules/leaflet/dist/leaflet.js custom_components/meshtastic_ui/ha_frontend/vendor/leaflet/leaflet.js && cp node_modules/leaflet/dist/leaflet.css custom_components/meshtastic_ui/ha_frontend/vendor/leaflet/leaflet.css",
+    "build:d3": "cp node_modules/d3/dist/d3.min.js custom_components/meshtastic_ui/ha_frontend/vendor/d3/d3.min.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Daring-Designs/meshtastic-ui-ha.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Daring-Designs/meshtastic-ui-ha/issues"
+  },
+  "homepage": "https://github.com/Daring-Designs/meshtastic-ui-ha#readme",
+  "dependencies": {
+    "d3": "7.9.0",
+    "leaflet": "1.9.4",
+    "lit-element": "4.1.1"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}

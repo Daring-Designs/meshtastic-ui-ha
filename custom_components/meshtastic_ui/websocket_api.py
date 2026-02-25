@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -31,6 +33,8 @@ from .const import (
     WS_PREFIX,
 )
 from .store import MeshtasticUiStore
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def async_register_websocket_api(hass: HomeAssistant) -> None:
@@ -365,6 +369,7 @@ async def ws_send_message(
                 "text": text,
                 "to": to,
                 "channel": channel,
+                "_ts": time.time(),
             }
 
         # Store and dispatch the outgoing message so the UI shows it
@@ -403,13 +408,14 @@ async def ws_send_message(
             msg["id"], {"success": True, "packet_id": packet_id}
         )
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "send_failed", str(err))
+        _LOGGER.exception("Send message failed")
+        connection.send_error(msg["id"], "send_failed", "Operation failed")
 
 
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/call_service",
-        vol.Required("service"): str,
+        vol.Required("service"): vol.In({"trace_route", "request_position"}),
         vol.Optional("service_data"): dict,
     }
 )
@@ -450,7 +456,8 @@ async def ws_call_service(
                 f"Unknown service: {service}",
             )
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "call_failed", str(err))
+        _LOGGER.exception("Call service '%s' failed", msg["service"])
+        connection.send_error(msg["id"], "call_failed", "Operation failed")
 
 
 @websocket_command(
@@ -488,7 +495,8 @@ async def ws_get_config(
         config = await conn.async_get_config()
         connection.send_result(msg["id"], config)
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "get_config_failed", str(err))
+        _LOGGER.exception("Get config failed")
+        connection.send_error(msg["id"], "get_config_failed", "Operation failed")
 
 
 @websocket_command(
@@ -503,12 +511,16 @@ async def ws_set_config(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Write a config section to the radio."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     try:
         await conn.async_set_config(msg["section"], msg["values"])
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "set_config_failed", str(err))
+        _LOGGER.exception("Set config '%s' failed", msg["section"])
+        connection.send_error(msg["id"], "set_config_failed", "Operation failed")
 
 
 @websocket_command(
@@ -526,13 +538,14 @@ async def ws_get_channels(
         config = await conn.async_get_config()
         connection.send_result(msg["id"], {"channels": config.get("channels", [])})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "get_channels_failed", str(err))
+        _LOGGER.exception("Get channels failed")
+        connection.send_error(msg["id"], "get_channels_failed", "Operation failed")
 
 
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/set_channel",
-        vol.Required("index"): int,
+        vol.Required("index"): vol.All(int, vol.Range(min=0, max=7)),
         vol.Required("settings"): dict,
     }
 )
@@ -541,12 +554,16 @@ async def ws_set_channel(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Write channel settings to the radio."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     try:
         await conn.async_set_channel(msg["index"], msg["settings"])
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "set_channel_failed", str(err))
+        _LOGGER.exception("Set channel %d failed", msg["index"])
+        connection.send_error(msg["id"], "set_channel_failed", "Operation failed")
 
 
 @websocket_command(
@@ -562,6 +579,9 @@ async def ws_set_owner(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Set the owner info on the radio."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     try:
         await conn.async_set_owner(
@@ -571,13 +591,17 @@ async def ws_set_owner(
         )
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "set_owner_failed", str(err))
+        _LOGGER.exception("Set owner failed")
+        connection.send_error(msg["id"], "set_owner_failed", "Operation failed")
 
 
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/device_action",
-        vol.Required("action"): str,
+        vol.Required("action"): vol.In({
+            "reboot", "shutdown", "factory_reset_config",
+            "factory_reset_device", "reboot_ota", "reset_nodedb",
+        }),
         vol.Optional("params"): dict,
     }
 )
@@ -586,20 +610,27 @@ async def ws_device_action(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Execute a device action (reboot, shutdown, factory reset, etc)."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     try:
         params = msg.get("params") or {}
-        await conn.async_device_action(msg["action"], **params)
+        seconds = min(max(int(params.get("seconds", 5)), 1), 300)
+        await conn.async_device_action(msg["action"], seconds=seconds)
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "device_action_failed", str(err))
+        _LOGGER.exception("Device action '%s' failed", msg["action"])
+        connection.send_error(msg["id"], "device_action_failed", "Operation failed")
 
 
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/node_admin",
         vol.Required("node_id"): str,
-        vol.Required("action"): str,
+        vol.Required("action"): vol.In({
+            "favorite", "unfavorite", "ignore", "unignore", "remove",
+        }),
     }
 )
 @async_response
@@ -607,10 +638,13 @@ async def ws_node_admin(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Perform admin action on a remote node (favorite, ignore, remove)."""
+    action = msg["action"]
+    if action == "remove" and not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     store = _get_store(hass)
     node_id = msg["node_id"]
-    action = msg["action"]
     try:
         await conn.async_node_admin(node_id, action)
         # Sync favorites/ignored to the local store
@@ -628,7 +662,8 @@ async def ws_node_admin(
             store.set_ignored(node_id, False)
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "node_admin_failed", str(err))
+        _LOGGER.exception("Node admin '%s' on %s failed", action, node_id)
+        connection.send_error(msg["id"], "node_admin_failed", "Operation failed")
 
 
 @websocket_command(
@@ -690,7 +725,8 @@ async def ws_send_waypoint(
             msg["id"], {"success": True, "waypoint_id": wp_id}
         )
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "send_waypoint_failed", str(err))
+        _LOGGER.exception("Send waypoint failed")
+        connection.send_error(msg["id"], "send_waypoint_failed", "Operation failed")
 
 
 @websocket_command(
@@ -719,7 +755,8 @@ async def ws_delete_waypoint(
         )
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "delete_waypoint_failed", str(err))
+        _LOGGER.exception("Delete waypoint failed")
+        connection.send_error(msg["id"], "delete_waypoint_failed", "Operation failed")
 
 
 @websocket_command(
@@ -796,8 +833,8 @@ async def ws_get_notification_prefs(
     {
         vol.Required("type"): f"{WS_PREFIX}/set_notification_prefs",
         vol.Optional("enabled"): bool,
-        vol.Optional("service"): str,
-        vol.Optional("filter"): str,
+        vol.Optional("service"): vol.Match(r"^notify\.\w+$"),
+        vol.Optional("filter"): vol.In({"all", "channel", "dm"}),
     }
 )
 @async_response
@@ -805,6 +842,9 @@ async def ws_set_notification_prefs(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Update notification preferences."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     store = _get_store(hass)
     prefs: dict[str, Any] = {}
     if "enabled" in msg:

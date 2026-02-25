@@ -1,4 +1,4 @@
-import { css } from "https://unpkg.com/lit-element@4.1.1/lit-element.js?module";
+import { css } from "./vendor/lit/lit-element.js";
 
 /* ── Layout & Cards ── */
 export const layoutStyles = css`
