@@ -466,24 +466,18 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _send() -> int | None:
-            from meshtastic.protobuf import mesh_pb2
-
-            wp = mesh_pb2.Waypoint()
-            wp.latitude_i = int(latitude * 1e7)
-            wp.longitude_i = int(longitude * 1e7)
-            if name:
-                wp.name = name
-            if description:
-                wp.description = description
-            if expire > 0:
-                wp.expire = expire
-            if waypoint_id is not None:
-                wp.id = waypoint_id
-
-            meshPacket = iface.sendWaypoint(wp)
+            meshPacket = iface.sendWaypoint(
+                name=name or "Waypoint",
+                description=description or "",
+                icon=0,
+                expire=expire,
+                waypoint_id=waypoint_id,
+                latitude=latitude,
+                longitude=longitude,
+            )
             if meshPacket and hasattr(meshPacket, "id"):
                 return meshPacket.id
-            return wp.id if wp.id else None
+            return None
 
         return await self._hass.async_add_executor_job(_send)
 
