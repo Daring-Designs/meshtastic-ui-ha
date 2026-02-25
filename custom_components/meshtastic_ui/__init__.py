@@ -181,17 +181,18 @@ def _register_radio_callbacks(
             portnum, packet.get("fromId"), packet.get("toId"),
         )
 
+        # Count all received packets from other nodes for time-series
+        ts = hass.data.get(DOMAIN, {}).get("ts")
+        if ts and portnum:
+            sender_id = packet.get("fromId")
+            local_num = ts.get("local_node_num")
+            local_id = _num_to_id(local_num) if local_num else None
+            if sender_id and sender_id != local_id:
+                ts["accumulators"]["packetRx"] += 1
+
         if portnum == "TEXT_MESSAGE_APP":
             _LOGGER.debug("Text message: %r", decoded.get("text", "")[:50])
             _handle_text_message(hass, store, packet)
-            # Count incoming text messages for time-series
-            ts = hass.data.get(DOMAIN, {}).get("ts")
-            if ts:
-                sender_id = packet.get("fromId")
-                local_num = ts.get("local_node_num")
-                local_id = _num_to_id(local_num) if local_num else None
-                if sender_id and sender_id != local_id:
-                    ts["accumulators"]["packetRx"] += 1
 
         # Handle delivery acknowledgements
         if portnum == "ROUTING_APP":
