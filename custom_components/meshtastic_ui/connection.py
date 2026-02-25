@@ -118,6 +118,7 @@ class MeshtasticConnection:
         self._message_callbacks: list[Callable] = []
         self._node_update_callbacks: list[Callable] = []
         self._connection_change_callbacks: list[Callable] = []
+        self._pubsub_listeners: list[Any] = []
 
     @property
     def state(self) -> ConnectionState:
@@ -206,6 +207,8 @@ class MeshtasticConnection:
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             self._reconnect_task = None
+
+        self._teardown_pubsub_listeners()
 
         if self._interface is not None:
             iface = self._interface
@@ -543,13 +546,32 @@ class MeshtasticConnection:
 
         raise ValueError(f"Unknown connection type: {self._connection_type}")
 
+    def _teardown_pubsub_listeners(self) -> None:
+        """Unsubscribe all pubsub listeners from previous connections."""
+        from pubsub import pub
+
+        for callback_fn, topic in self._pubsub_listeners:
+            try:
+                pub.unsubscribe(callback_fn, topic)
+            except Exception:  # noqa: BLE001
+                pass
+        self._pubsub_listeners.clear()
+
     def _setup_pubsub_listeners(self) -> None:
         """Subscribe to meshtastic pubsub events from the interface."""
         from pubsub import pub
 
+        # Clean up any old subscriptions first (prevents duplicates on reconnect)
+        self._teardown_pubsub_listeners()
+
         def _on_receive(packet: dict, interface: Any) -> None:
             if interface is not self._interface:
                 return
+            _LOGGER.debug(
+                "Received packet portnum=%s from=%s",
+                packet.get("decoded", {}).get("portnum", "?"),
+                packet.get("fromId", "?"),
+            )
             self._hass.loop.call_soon_threadsafe(
                 self._async_dispatch_message, packet
             )
@@ -575,10 +597,16 @@ class MeshtasticConnection:
                 self._async_dispatch_node_update, node
             )
 
-        pub.subscribe(_on_receive, "meshtastic.receive")
-        pub.subscribe(_on_connection_established, "meshtastic.connection.established")
-        pub.subscribe(_on_connection_lost, "meshtastic.connection.lost")
-        pub.subscribe(_on_node_updated, "meshtastic.node.updated")
+        # Store (callback, topic) tuples for cleanup on disconnect/reconnect
+        topics = [
+            (_on_receive, "meshtastic.receive"),
+            (_on_connection_established, "meshtastic.connection.established"),
+            (_on_connection_lost, "meshtastic.connection.lost"),
+            (_on_node_updated, "meshtastic.node.updated"),
+        ]
+        for callback_fn, topic in topics:
+            pub.subscribe(callback_fn, topic)
+            self._pubsub_listeners.append((callback_fn, topic))
 
     def _async_dispatch_message(self, packet: dict) -> None:
         """Dispatch a received packet to callbacks (runs on HA event loop)."""

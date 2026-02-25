@@ -140,7 +140,13 @@ def _register_radio_callbacks(
         decoded = packet.get("decoded", {})
         portnum = decoded.get("portnum")
 
+        _LOGGER.debug(
+            "Packet received: portnum=%s from=%s to=%s",
+            portnum, packet.get("fromId"), packet.get("toId"),
+        )
+
         if portnum == "TEXT_MESSAGE_APP":
+            _LOGGER.debug("Text message: %r", decoded.get("text", "")[:50])
             _handle_text_message(hass, store, packet)
 
         # Handle delivery acknowledgements
