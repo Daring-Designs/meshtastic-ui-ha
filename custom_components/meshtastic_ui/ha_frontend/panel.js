@@ -76,15 +76,10 @@ class MeshtasticUiPanel extends LitElement {
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
     this._chartWindow = parseInt(localStorage.getItem("meshtastic_chart_window"), 10) || 300;
-    this._timeSeries = {
-      channelUtil: new Float64Array(150),
-      airtimeTx: new Float64Array(150),
-      battery: new Float64Array(150),
-      packetTx: new Float64Array(150),
-      packetRx: new Float64Array(150),
-    };
+    this._timeSeries = this._restoreTimeSeries();
     this._tsAccumulators = { packetRx: 0, packetTx: 0 };
     this._tsSnapshots = { channelUtil: 0, airtimeTx: 0, battery: 0 };
+    this._tsSnapshotDirty = { channelUtil: false, airtimeTx: false, battery: false };
     this._tsIntervalId = null;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -183,6 +178,53 @@ class MeshtasticUiPanel extends LitElement {
     if (result) this._notificationPrefs = result;
   }
 
+  _restoreTimeSeries() {
+    const empty = () => ({
+      channelUtil: new Float64Array(150),
+      airtimeTx: new Float64Array(150),
+      battery: new Float64Array(150),
+      packetTx: new Float64Array(150),
+      packetRx: new Float64Array(150),
+    });
+    try {
+      const raw = localStorage.getItem("meshtastic_ts_data");
+      if (!raw) return empty();
+      const saved = JSON.parse(raw);
+      if (saved.window !== this._chartWindow) return empty();
+      const elapsed = Math.floor((Date.now() - saved.ts) / (this._chartInterval * 1000));
+      if (elapsed >= 150) return empty();
+      const ts = empty();
+      for (const key of Object.keys(ts)) {
+        const arr = saved.data?.[key];
+        if (!arr || arr.length !== 150) continue;
+        if (elapsed > 0) {
+          // Shift old data left by elapsed buckets, leaving recent buckets zeroed
+          for (let i = 0; i < 150 - elapsed; i++) {
+            ts[key][i] = arr[i + elapsed];
+          }
+        } else {
+          ts[key].set(arr);
+        }
+      }
+      return ts;
+    } catch {
+      return empty();
+    }
+  }
+
+  _saveTimeSeries() {
+    const ts = this._timeSeries;
+    const data = {};
+    for (const key of Object.keys(ts)) {
+      data[key] = Array.from(ts[key]);
+    }
+    localStorage.setItem("meshtastic_ts_data", JSON.stringify({
+      ts: Date.now(),
+      window: this._chartWindow,
+      data,
+    }));
+  }
+
   _flushTimeSeries() {
     const ts = this._timeSeries;
     const acc = this._tsAccumulators;
@@ -190,10 +232,12 @@ class MeshtasticUiPanel extends LitElement {
     for (const key of Object.keys(ts)) {
       ts[key].copyWithin(0, 1);
     }
-    // Snapshot values (latest telemetry, not reset)
-    ts.channelUtil[149] = snap.channelUtil;
-    ts.airtimeTx[149] = snap.airtimeTx;
-    ts.battery[149] = snap.battery;
+    // Snapshot values — only record when new telemetry has arrived
+    const dirty = this._tsSnapshotDirty;
+    ts.channelUtil[149] = dirty.channelUtil ? snap.channelUtil : 0;
+    ts.airtimeTx[149] = dirty.airtimeTx ? snap.airtimeTx : 0;
+    ts.battery[149] = dirty.battery ? snap.battery : 0;
+    this._tsSnapshotDirty = { channelUtil: false, airtimeTx: false, battery: false };
     // Counter values (reset each flush)
     ts.packetTx[149] = acc.packetTx;
     ts.packetRx[149] = acc.packetRx;
@@ -206,6 +250,7 @@ class MeshtasticUiPanel extends LitElement {
       packetTx: new Float64Array(ts.packetTx),
       packetRx: new Float64Array(ts.packetRx),
     };
+    this._saveTimeSeries();
   }
 
   _subscribe() {
@@ -308,9 +353,9 @@ class MeshtasticUiPanel extends LitElement {
     if (!node_id) return;
     // Capture telemetry snapshots from the local (gateway) node
     if (node_id === this._localNodeId && data) {
-      if (data.channel_utilization != null) this._tsSnapshots.channelUtil = data.channel_utilization;
-      if (data.air_util_tx != null) this._tsSnapshots.airtimeTx = data.air_util_tx;
-      if (data.battery != null) this._tsSnapshots.battery = data.battery;
+      if (data.channel_utilization != null) { this._tsSnapshots.channelUtil = data.channel_utilization; this._tsSnapshotDirty.channelUtil = true; }
+      if (data.air_util_tx != null) { this._tsSnapshots.airtimeTx = data.air_util_tx; this._tsSnapshotDirty.airtimeTx = true; }
+      if (data.battery != null) { this._tsSnapshots.battery = data.battery; this._tsSnapshotDirty.battery = true; }
     }
     this._nodes = {
       ...this._nodes,
@@ -373,6 +418,7 @@ class MeshtasticUiPanel extends LitElement {
       packetRx: new Float64Array(150),
     };
     this._tsAccumulators = { packetRx: 0, packetTx: 0 };
+    this._tsSnapshotDirty = { channelUtil: false, airtimeTx: false, battery: false };
     // Restart interval timer with new cadence
     if (this._tsIntervalId) clearInterval(this._tsIntervalId);
     this._tsIntervalId = setInterval(() => this._flushTimeSeries(), this._chartInterval * 1000);
