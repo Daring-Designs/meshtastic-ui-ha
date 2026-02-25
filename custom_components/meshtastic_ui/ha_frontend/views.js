@@ -2145,6 +2145,7 @@ class MeshPacketTreemap extends LitElement {
     return {
       data: { type: Object },
       _d3Ready: { type: Boolean },
+      _tooltip: { type: Object },
     };
   }
 
@@ -2154,6 +2155,7 @@ class MeshPacketTreemap extends LitElement {
     this._d3Ready = false;
     this._resizeObserver = null;
     this._containerWidth = 0;
+    this._tooltip = null;
   }
 
   connectedCallback() {
@@ -2238,7 +2240,6 @@ class MeshPacketTreemap extends LitElement {
       const pct = ((d.total / grandTotal) * 100).toFixed(1);
 
       const el = document.createElement("div");
-      el.title = `${d.label}: ${d.total} (${pct}%)`;
       el.style.cssText = `
         position:absolute;
         left:${leaf.x0}px;top:${leaf.y0}px;
@@ -2252,6 +2253,12 @@ class MeshPacketTreemap extends LitElement {
         text-shadow:0 1px 2px rgba(0,0,0,0.5);
         line-height:1.3;cursor:default;
       `;
+
+      const tipText = `${d.label}: ${d.total} (${pct}%)`;
+      el.addEventListener("mouseenter", () => {
+        this._tooltip = { x: leaf.x0 + lw / 2, y: leaf.y0, text: tipText };
+      });
+      el.addEventListener("mouseleave", () => { this._tooltip = null; });
 
       if (lw > 50 && lh > 24) {
         el.innerHTML = `<strong>${d.label}</strong>`;
@@ -2271,18 +2278,43 @@ class MeshPacketTreemap extends LitElement {
         border: 1px solid var(--divider-color);
         padding: 12px 16px;
       }
+      .treemap-outer {
+        position: relative;
+      }
       .treemap-wrap {
         width: 100%;
         position: relative;
         min-height: 140px;
       }
+      .treemap-tooltip {
+        position: absolute;
+        transform: translate(-50%, -100%);
+        margin-top: -6px;
+        background: var(--card-background-color, #333);
+        color: var(--primary-text-color, #fff);
+        border: 1px solid var(--divider-color, #555);
+        border-radius: 8px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        pointer-events: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        z-index: 10;
+      }
     `;
   }
 
   render() {
+    const tt = this._tooltip;
     return html`
       <div class="chart-container">
-        <div class="treemap-wrap"></div>
+        <div class="treemap-outer">
+          <div class="treemap-wrap"></div>
+          ${tt ? html`
+            <div class="treemap-tooltip" style="left:${tt.x}px;top:${tt.y}px">${tt.text}</div>
+          ` : ""}
+        </div>
       </div>
     `;
   }
