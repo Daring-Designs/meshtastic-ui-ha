@@ -266,14 +266,16 @@ export class MeshRadioTab extends LitElement {
           <mesh-horizon-chart
             .data=${ts.channelUtil}
             label="Channel Utilization"
-            colorScheme="Blues"
+            colorMode="flat"
+            flatColor="#42a5f5"
             unit="%"
             .bucketInterval=${bi}
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.airtimeTx}
             label="Airtime TX"
-            colorScheme="Oranges"
+            colorMode="flat"
+            flatColor="#ffa726"
             unit="%"
             .bucketInterval=${bi}
           ></mesh-horizon-chart>
