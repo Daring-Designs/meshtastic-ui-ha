@@ -243,14 +243,27 @@ class MeshtasticConnection:
         return await self._hass.async_add_executor_job(_send)
 
     async def async_send_traceroute(self, destination_id: str) -> None:
-        """Send a traceroute request."""
+        """Send a traceroute request (non-blocking).
+
+        Uses sendData directly instead of sendTraceRoute to avoid blocking
+        the executor thread waiting for a response. The traceroute result
+        arrives asynchronously via the meshtastic.receive pubsub callback.
+        """
         if self._interface is None:
             raise RuntimeError("Not connected to radio")
 
         iface = self._interface
 
         def _trace() -> None:
-            iface.sendTraceRoute(dest=destination_id, hopLimit=0)
+            from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+            route_discovery = mesh_pb2.RouteDiscovery()
+            iface.sendData(
+                route_discovery,
+                destination_id,
+                portNum=portnums_pb2.TRACEROUTE_APP,
+                wantResponse=True,
+            )
 
         await self._hass.async_add_executor_job(_trace)
 
