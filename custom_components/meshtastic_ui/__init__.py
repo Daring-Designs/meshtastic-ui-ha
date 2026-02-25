@@ -77,6 +77,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _setup_event_listeners(hass: HomeAssistant, store: MeshtasticUiStore) -> None:
     """Subscribe to meshtastic events."""
     unsub_listeners = hass.data[DOMAIN]["unsub_listeners"]
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
 
     @callback
     def _handle_message_log(event: Event) -> None:
@@ -92,6 +94,20 @@ def _setup_event_listeners(hass: HomeAssistant, store: MeshtasticUiStore) -> Non
             "channel": data.get("channel"),
             "gateway": data.get("gateway"),
         }
+
+        # Track the sender as a node
+        sender = data.get("from")
+        if sender:
+            node_update: dict[str, Any] = {
+                "_last_seen": timestamp,
+            }
+            if data.get("snr") is not None:
+                node_update["snr"] = data["snr"]
+            if data.get("hops") is not None:
+                node_update["hops"] = data["hops"]
+            if data.get("rssi") is not None:
+                node_update["rssi"] = data["rssi"]
+            store.update_node(str(sender), node_update)
 
         pki = data.get("pki", False)
         if pki:
@@ -124,6 +140,32 @@ def _setup_event_listeners(hass: HomeAssistant, store: MeshtasticUiStore) -> Non
         if event_type:
             update["last_event_type"] = event_type
 
+        # Capture all available node fields from the event
+        field_map = {
+            "name": "name",
+            "long_name": "name",
+            "short_name": "short_name",
+            "hardware": "hardware_model",
+            "hardware_model": "hardware_model",
+            "snr": "snr",
+            "rssi": "rssi",
+            "hops": "hops",
+            "battery": "battery",
+            "voltage": "voltage",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "altitude": "altitude",
+            "temperature": "temperature",
+            "humidity": "humidity",
+            "pressure": "pressure",
+            "air_util_tx": "air_util_tx",
+            "channel_utilization": "channel_utilization",
+            "uptime": "uptime",
+        }
+        for event_key, store_key in field_map.items():
+            if event_key in data and data[event_key] is not None:
+                update[store_key] = data[event_key]
+
         store.update_node(str(node_id), update)
 
     @callback
@@ -137,9 +179,19 @@ def _setup_event_listeners(hass: HomeAssistant, store: MeshtasticUiStore) -> Non
         if new_state is None:
             return
 
-        # Extract node id from entity_id
-        # e.g. sensor.meshtastic_abcd1234_battery -> node id extraction
-        node_id = _extract_node_id_from_entity(entity_id)
+        # Use entity/device registry to reliably find the node ID
+        ent_entry = ent_reg.async_get(entity_id)
+        if not ent_entry or not ent_entry.device_id:
+            return
+        device = dev_reg.async_get(ent_entry.device_id)
+        if not device:
+            return
+
+        node_id = None
+        for ident in device.identifiers:
+            if ident[0] == "meshtastic":
+                node_id = ident[1] if len(ident) > 1 else None
+                break
         if not node_id:
             return
 
@@ -163,6 +215,8 @@ async def _async_scan_nodes(hass: HomeAssistant, store: MeshtasticUiStore) -> No
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
 
+    scanned_ids: set[str] = set()
+
     for device in dev_reg.devices.values():
         node_id = None
         for ident in device.identifiers:
@@ -172,6 +226,8 @@ async def _async_scan_nodes(hass: HomeAssistant, store: MeshtasticUiStore) -> No
 
         if node_id is None:
             continue
+
+        scanned_ids.add(node_id)
 
         node_data: dict[str, Any] = {
             "name": device.name or node_id,
@@ -191,6 +247,13 @@ async def _async_scan_nodes(hass: HomeAssistant, store: MeshtasticUiStore) -> No
                 node_data[sensor_type] = state.state
 
         store.update_node(node_id, node_data)
+
+    # Remove stale nodes that were created by buggy entity name parsing
+    # and don't correspond to any meshtastic device
+    stale_ids = [nid for nid in store.get_nodes() if nid not in scanned_ids
+                 and not nid.startswith("!")]
+    for stale_id in stale_ids:
+        store.remove_node(stale_id)
 
     _LOGGER.debug("Initial node scan found %d meshtastic devices", store.total_nodes)
 
@@ -213,6 +276,7 @@ def _extract_node_id_from_entity(entity_id: str) -> str | None:
         "hops",
         "voltage",
         "air_util_tx",
+        "channel_utilization",
         "channel_util",
         "uptime",
         "temperature",
@@ -221,6 +285,7 @@ def _extract_node_id_from_entity(entity_id: str) -> str | None:
         "latitude",
         "longitude",
         "altitude",
+        "rssi",
     ]
     for suffix in known_suffixes:
         if remainder.endswith(f"_{suffix}"):
@@ -242,6 +307,7 @@ def _extract_sensor_type(entity_id: str) -> str | None:
         "hops",
         "voltage",
         "air_util_tx",
+        "channel_utilization",
         "channel_util",
         "uptime",
         "temperature",
@@ -250,6 +316,7 @@ def _extract_sensor_type(entity_id: str) -> str | None:
         "latitude",
         "longitude",
         "altitude",
+        "rssi",
     ]
     for suffix in known_suffixes:
         if remainder.endswith(f"_{suffix}"):

@@ -112,6 +112,12 @@ class MeshtasticUiStore:
         self._nodes[node_id] = existing
         self._schedule_save()
 
+    def remove_node(self, node_id: str) -> None:
+        """Remove a node entry."""
+        if node_id in self._nodes:
+            del self._nodes[node_id]
+            self._schedule_save()
+
     def get_channel_messages(self, entity_id: str) -> list[dict[str, Any]]:
         """Get messages for a channel."""
         return list(self._channel_messages.get(entity_id, []))

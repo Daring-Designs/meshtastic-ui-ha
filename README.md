@@ -4,11 +4,12 @@ A companion integration that adds a unified dashboard for your [Meshtastic](http
 
 ## What It Does
 
-**Meshtastic UI** adds a sidebar panel ("Mesh UI") with four tabs:
+**Meshtastic UI** adds a sidebar panel ("Mesh UI") with five tabs:
 
-- **Radio** — Embeds the Meshtastic web client directly in your HA dashboard (no more opening a separate tab)
+- **Radio** — Gateway status dashboard showing connection state, battery, airtime, packet counters, and channel configuration for each Meshtastic gateway
 - **Messages** — View channel and direct message history with a chat-style interface. Send messages right from HA. Messages persist across restarts.
-- **Nodes** — Sortable table of all mesh nodes showing name, SNR, hops, battery, and last seen time
+- **Nodes** — Sortable, searchable table of all mesh nodes with filters for last heard, battery level, and hop count. Click any node to open a detail dialog with identity, radio, power, environment, and position data. Action buttons let you send a direct message, trace route, or request position.
+- **Map** — Interactive map (Leaflet/OpenStreetMap) showing all nodes with GPS positions. Markers include popups with node info and a link to the detail dialog. Auto-fits bounds and shows a badge for nodes without position data.
 - **Stats** — At-a-glance summary cards: messages today, active nodes, total nodes, and channel count
 
 It also creates two sensor entities:
@@ -41,7 +42,7 @@ This integration communicates with the existing Meshtastic integration entirely 
 - **Event bus** — Listens to `meshtastic_message_log` and `meshtastic_event` for real-time messages and node activity
 - **Device/Entity registry** — Discovers gateways and nodes automatically
 - **State machine** — Reads sensor values (SNR, battery, hops, etc.) from existing Meshtastic entities
-- **Services** — Sends messages by calling `meshtastic.broadcast_channel_message` and `meshtastic.send_direct_message`
+- **Services** — Sends messages by calling `meshtastic.broadcast_channel_message` and `meshtastic.send_direct_message`. Node actions (trace route, request position) are proxied through a secure service call handler that only allows `meshtastic` domain services.
 
 Message history and node data are stored locally and persist across HA restarts.
 
