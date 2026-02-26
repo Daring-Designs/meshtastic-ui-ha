@@ -8,9 +8,27 @@ Meshtastic UI for Home Assistant — a HACS custom integration that adds a full 
 
 ## Development
 
-There is no build step, test suite, or linter configured. The frontend is vanilla ES modules (Lit 4.x) served directly by Home Assistant. The backend is standard HA integration Python.
+### Build
 
-To test changes: copy `custom_components/meshtastic_ui/` into a Home Assistant `config/custom_components/` directory, restart HA, and hard-refresh the browser (Ctrl+Shift+R) to bypass cached JS.
+Vendor libraries (Lit, Leaflet, D3) are bundled into `ha_frontend/vendor/` via a build step. The app-level frontend files (`panel.js`, `views.js`, etc.) are vanilla ES modules served directly by Home Assistant — no transpilation.
+
+```bash
+npm install          # install deps (first time / after changes)
+npm run build        # bundle Lit (Vite) + copy Leaflet & D3 into vendor/
+```
+
+### Tests
+
+Backend Python tests use `pytest` with `pytest-homeassistant-custom-component`:
+
+```bash
+pip install -e ".[test]"   # install test deps
+pytest                      # run tests
+```
+
+### Manual testing
+
+Copy `custom_components/meshtastic_ui/` into a Home Assistant `config/custom_components/` directory, restart HA, and hard-refresh the browser (Ctrl+Shift+R) to bypass cached JS.
 
 ## Architecture
 

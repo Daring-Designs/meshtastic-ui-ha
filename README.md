@@ -7,7 +7,7 @@ A companion HACS integration that adds a full-featured dashboard for your [Mesht
 ## Built With
 
 - **Backend** — Python, using the [meshtastic](https://pypi.org/project/meshtastic/) library for all radio communication (TCP, Serial, BLE). Integrates with Home Assistant via its WebSocket API and async event system.
-- **Frontend** — Vanilla ES modules built with [Lit](https://lit.dev/) 4.x web components, [Leaflet](https://leafletjs.com/) for mapping, and [D3](https://d3js.org/) for real-time charts. No build step — served directly by Home Assistant.
+- **Frontend** — Vanilla ES modules built with [Lit](https://lit.dev/) 4.x web components, [Leaflet](https://leafletjs.com/) for mapping, and [D3](https://d3js.org/) for real-time charts. Vendor libraries are bundled via a build step; app-level JS is served directly by Home Assistant.
 
 ## Why Connect a Radio to Home Assistant?
 
