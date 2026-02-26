@@ -278,7 +278,7 @@ class MeshtasticUiPanel extends LitElement {
       const msgs = this._messages[key];
       if (!msgs) return;
       const targetId = data.target_message_id;
-      const idx = msgs.findIndex((m) => (m.message_id ?? m.packet_id) === targetId);
+      const idx = msgs.findIndex((m) => m.message_id === targetId);
       if (idx === -1) return;
       const msg = { ...msgs[idx] };
       const reactions = { ...(msg.reactions || {}) };

@@ -347,7 +347,7 @@ class MeshtasticUiStore:
         if not messages:
             return False
         for msg in reversed(messages):
-            if (msg.get("message_id") or msg.get("packet_id")) == target_message_id:
+            if msg.get("message_id") == target_message_id:
                 reactions: dict[str, list[str]] = msg.setdefault("reactions", {})
                 senders: list[str] = reactions.setdefault(emoji, [])
                 if sender_id not in senders:

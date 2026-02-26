@@ -731,12 +731,12 @@ export class MeshMessagesTab extends LitElement {
               const isOutgoing = msg.type === "sent" || msg._outgoing;
               const senderName = this._getNodeName(msg.from) || msg.from || "Unknown";
               const delivery = msg.packet_id ? this.deliveryStatuses[msg.packet_id] : null;
-              const msgId = msg.message_id ?? msg.packet_id;
+              const msgId = msg.message_id;
               const hasActions = msgId != null;
               // Look up quoted reply
               let quotedMsg = null;
               if (msg.reply_id) {
-                quotedMsg = currentMessages.find((m) => (m.message_id ?? m.packet_id) === msg.reply_id);
+                quotedMsg = currentMessages.find((m) => m.message_id === msg.reply_id);
               }
               const reactions = msg.reactions || {};
               const reactionEntries = Object.entries(reactions);
@@ -853,9 +853,8 @@ export class MeshMessagesTab extends LitElement {
     const allConversations = [...defaultChannels, ...this.dms];
     const selected = this.selectedConversation || allConversations[0] || "0";
     const detail = { text: this._messageInput, conversation: selected };
-    const replyMsgId = this._replyTo?.message_id ?? this._replyTo?.packet_id;
-    if (replyMsgId != null) {
-      detail.reply_id = replyMsgId;
+    if (this._replyTo?.message_id != null) {
+      detail.reply_id = this._replyTo.message_id;
     }
     this.dispatchEvent(
       new CustomEvent("send-message", {
