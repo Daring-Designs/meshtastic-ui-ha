@@ -467,15 +467,19 @@ export class MeshMessagesTab extends LitElement {
           flex: 1; display: flex;
           flex-direction: column; min-width: 0; min-height: 0;
         }
-        .chat-messages { flex: 1; overflow-y: auto; padding: 8px 0; }
+        .chat-messages {
+          flex: 1; overflow-y: auto; padding: 8px 0;
+          display: flex; flex-direction: column;
+        }
         .chat-bubble {
-          max-width: 75%; padding: 8px 14px;
-          margin: 4px 0; border-radius: 16px;
+          padding: 8px 14px;
+          border-radius: 16px;
           font-size: 14px; line-height: 1.4; word-break: break-word;
+          min-width: 0;
         }
         .chat-bubble.incoming {
           background: var(--secondary-background-color);
-          border-bottom-left-radius: 4px; align-self: flex-start;
+          border-bottom-left-radius: 4px;
         }
         .chat-bubble .sender {
           font-size: 11px; font-weight: 600;
@@ -528,8 +532,7 @@ export class MeshMessagesTab extends LitElement {
         .chat-bubble.outgoing {
           background: var(--primary-color);
           color: var(--text-primary-color);
-          border-bottom-right-radius: 4px; align-self: flex-end;
-          margin-left: auto;
+          border-bottom-right-radius: 4px;
         }
         .chat-bubble.outgoing .sender { color: rgba(255,255,255,0.7); }
         .chat-bubble.outgoing .time { color: rgba(255,255,255,0.6); }
@@ -551,23 +554,29 @@ export class MeshMessagesTab extends LitElement {
 
         /* Reply & Reaction UI */
         .chat-bubble-wrapper {
-          position: relative;
           display: flex;
           flex-direction: column;
+          max-width: 80%;
+          margin: 2px 0;
         }
-        .chat-bubble-wrapper.outgoing { align-items: flex-end; }
-        .chat-bubble-wrapper.incoming { align-items: flex-start; }
+        .chat-bubble-wrapper.outgoing { align-self: flex-end; align-items: flex-end; }
+        .chat-bubble-wrapper.incoming { align-self: flex-start; align-items: flex-start; }
+
+        .bubble-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 4px;
+        }
+        .chat-bubble-wrapper.outgoing .bubble-row { flex-direction: row-reverse; }
 
         .bubble-actions {
           display: none;
-          position: absolute;
-          top: 4px;
+          flex-direction: column;
           gap: 2px;
-          z-index: 10;
+          flex-shrink: 0;
+          padding-top: 4px;
         }
-        .chat-bubble-wrapper.incoming .bubble-actions { right: -60px; }
-        .chat-bubble-wrapper.outgoing .bubble-actions { left: -60px; }
-        .chat-bubble-wrapper:hover .bubble-actions,
+        .bubble-row:hover .bubble-actions,
         .chat-bubble-wrapper.actions-open .bubble-actions { display: flex; }
 
         .bubble-action-btn {
@@ -588,15 +597,12 @@ export class MeshMessagesTab extends LitElement {
 
         .emoji-picker {
           display: flex; gap: 4px;
-          position: absolute; bottom: 100%; margin-bottom: 4px;
           background: var(--card-background-color);
           border: 1px solid var(--divider-color);
           border-radius: 20px; padding: 4px 8px;
           box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-          z-index: 20;
+          margin-bottom: 4px;
         }
-        .chat-bubble-wrapper.outgoing .emoji-picker { right: 0; }
-        .chat-bubble-wrapper.incoming .emoji-picker { left: 0; }
         .emoji-pick-btn {
           background: none; border: none; cursor: pointer;
           font-size: 20px; padding: 2px 4px; line-height: 1;
@@ -740,12 +746,6 @@ export class MeshMessagesTab extends LitElement {
                   @touchend=${hasActions ? () => this._onTouchEnd() : null}
                   @touchcancel=${hasActions ? () => this._onTouchEnd() : null}
                 >
-                  ${hasActions ? html`
-                    <div class="bubble-actions">
-                      <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title="Reply">\u21A9</button>
-                      <button class="bubble-action-btn" @click=${() => this._toggleEmojiPicker(msgId)} title="React">\u263A</button>
-                    </div>
-                  ` : ""}
                   ${this._emojiPickerTarget === msgId ? html`
                     <div class="emoji-picker">
                       ${["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDC4E"].map((em) => html`
@@ -753,18 +753,26 @@ export class MeshMessagesTab extends LitElement {
                       `)}
                     </div>
                   ` : ""}
-                  <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
-                    <div class="sender">${senderName}</div>
-                    ${quotedMsg ? html`
-                      <div class="quoted-reply">
-                        <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || "Unknown"}</span>
-                        ${(quotedMsg.text || "").slice(0, 60)}${(quotedMsg.text || "").length > 60 ? "\u2026" : ""}
+                  <div class="bubble-row">
+                    <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
+                      <div class="sender">${senderName}</div>
+                      ${quotedMsg ? html`
+                        <div class="quoted-reply">
+                          <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || "Unknown"}</span>
+                          ${(quotedMsg.text || "").slice(0, 60)}${(quotedMsg.text || "").length > 60 ? "\u2026" : ""}
+                        </div>
+                      ` : ""}
+                      <div>${msg.text}</div>
+                      <div class="time">
+                        ${formatTime(msg.timestamp)}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
+                      </div>
+                    </div>
+                    ${hasActions ? html`
+                      <div class="bubble-actions">
+                        <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title="Reply">\u21A9</button>
+                        <button class="bubble-action-btn" @click=${() => this._toggleEmojiPicker(msgId)} title="React">\u263A</button>
                       </div>
                     ` : ""}
-                    <div>${msg.text}</div>
-                    <div class="time">
-                      ${formatTime(msg.timestamp)}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
-                    </div>
                   </div>
                   ${reactionEntries.length ? html`
                     <div class="reactions-row">
