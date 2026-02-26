@@ -103,14 +103,16 @@ class MeshtasticUiPanel extends LitElement {
     if (changed.has("hass") && this.hass) {
       const conn = this.hass.connection;
       if (this._prevConnection && this._prevConnection !== conn) {
-        // Connection was replaced (reconnect) — re-subscribe
+        // Connection was replaced (reconnect) — reload everything
         this._unsubscribeFn = null;
         this._unsubNodesFn = null;
         this._unsubDeliveryFn = null;
         this._unsubWaypointsFn = null;
         this._unsubTraceroutesFn = null;
         this._subscribing = false;
-        this._subscribe();
+        this._prevConnection = conn;
+        this._loadData();
+        return;
       }
       this._prevConnection = conn;
       if (!this._unsubscribeFn && !this._subscribing) {
@@ -282,11 +284,16 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   _unsubscribe() {
-    if (this._unsubscribeFn) { this._unsubscribeFn(); this._unsubscribeFn = null; }
-    if (this._unsubNodesFn) { this._unsubNodesFn(); this._unsubNodesFn = null; }
-    if (this._unsubDeliveryFn) { this._unsubDeliveryFn(); this._unsubDeliveryFn = null; }
-    if (this._unsubWaypointsFn) { this._unsubWaypointsFn(); this._unsubWaypointsFn = null; }
-    if (this._unsubTraceroutesFn) { this._unsubTraceroutesFn(); this._unsubTraceroutesFn = null; }
+    const fns = [
+      "_unsubscribeFn", "_unsubNodesFn", "_unsubDeliveryFn",
+      "_unsubWaypointsFn", "_unsubTraceroutesFn",
+    ];
+    for (const key of fns) {
+      if (this[key]) {
+        try { const r = this[key](); if (r && r.catch) r.catch(() => {}); } catch (_) {}
+        this[key] = null;
+      }
+    }
     this._subscribing = false;
   }
 
