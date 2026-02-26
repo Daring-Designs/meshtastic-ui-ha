@@ -299,27 +299,6 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   _handleRealtimeMessage(data) {
-    // Handle emoji reactions — update the target message's reactions inline.
-    if (data.type === "reaction") {
-      const key = data.channel || data.partner;
-      if (!key) return;
-      const msgs = this._messages[key];
-      if (!msgs) return;
-      const targetId = data.target_message_id;
-      const idx = msgs.findIndex((m) => m.message_id === targetId);
-      if (idx === -1) return;
-      const msg = { ...msgs[idx] };
-      const reactions = { ...(msg.reactions || {}) };
-      const senders = [...(reactions[data.emoji] || [])];
-      if (!senders.includes(data.from)) senders.push(data.from);
-      reactions[data.emoji] = senders;
-      msg.reactions = reactions;
-      const updated = [...msgs];
-      updated[idx] = msg;
-      this._messages = { ...this._messages, [key]: updated };
-      return;
-    }
-
     const key = data.type === "dm" ? data.partner : data.channel;
     if (!key) return;
 
@@ -421,7 +400,7 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   async _onSendMessage(e) {
-    const { text, conversation, reply_id, emoji } = e.detail;
+    const { text, conversation, reply_id } = e.detail;
     const data = { text };
     if (this._dms.includes(conversation)) {
       data.to = conversation;
@@ -429,9 +408,8 @@ class MeshtasticUiPanel extends LitElement {
       data.channel = parseInt(conversation, 10) || 0;
     }
     if (reply_id != null) data.reply_id = reply_id;
-    if (emoji) data.emoji = true;
     const result = await this._wsCommand("meshtastic_ui/send_message", data);
-    if (result?.packet_id && !emoji && !this._deliveryStatuses[result.packet_id]) {
+    if (result?.packet_id && !this._deliveryStatuses[result.packet_id]) {
       this._deliveryStatuses = {
         ...this._deliveryStatuses,
         [result.packet_id]: { status: "pending" },

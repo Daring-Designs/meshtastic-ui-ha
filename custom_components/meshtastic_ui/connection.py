@@ -226,7 +226,6 @@ class MeshtasticConnection:
         destination_id: str | None = None,
         channel_index: int = 0,
         reply_id: int | None = None,
-        emoji: bool = False,
     ) -> int | None:
         """Send a text message via the radio. Returns the packet ID if available."""
         if self._interface is None:
@@ -235,29 +234,12 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _send() -> int | None:
-            if emoji:
-                # sendText() doesn't support the emoji field — build the
-                # packet manually and send via sendData().
-                from meshtastic.protobuf import mesh_pb2, portnums_pb2
-
-                meshPacket = mesh_pb2.MeshPacket()
-                meshPacket.decoded.payload = text.encode("utf-8")
-                meshPacket.decoded.emoji = 1
-                if reply_id is not None:
-                    meshPacket.decoded.reply_id = reply_id
-                meshPacket = iface.sendData(
-                    meshPacket,
-                    destination_id or "^all",
-                    portNum=portnums_pb2.TEXT_MESSAGE_APP,
-                    channelIndex=channel_index,
-                )
-            else:
-                kwargs: dict[str, Any] = {"channelIndex": channel_index}
-                if destination_id:
-                    kwargs["destinationId"] = destination_id
-                if reply_id is not None:
-                    kwargs["replyId"] = reply_id
-                meshPacket = iface.sendText(text, **kwargs)
+            kwargs: dict[str, Any] = {"channelIndex": channel_index}
+            if destination_id:
+                kwargs["destinationId"] = destination_id
+            if reply_id is not None:
+                kwargs["replyId"] = reply_id
+            meshPacket = iface.sendText(text, **kwargs)
             if meshPacket and hasattr(meshPacket, "id"):
                 return meshPacket.id
             return None

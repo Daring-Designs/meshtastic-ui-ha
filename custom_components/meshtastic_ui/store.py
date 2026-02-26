@@ -330,32 +330,6 @@ class MeshtasticUiStore:
         self._notification_prefs.update(prefs)
         self._schedule_save()
 
-    def add_reaction(
-        self,
-        conversation_key: str,
-        target_message_id: int,
-        sender_id: str,
-        emoji: str,
-        is_channel: bool = True,
-    ) -> bool:
-        """Store an emoji reaction on a message. Returns True if the target was found."""
-        messages = (
-            self._channel_messages.get(conversation_key)
-            if is_channel
-            else self._dm_messages.get(conversation_key)
-        )
-        if not messages:
-            return False
-        for msg in reversed(messages):
-            if msg.get("message_id") == target_message_id:
-                reactions: dict[str, list[str]] = msg.setdefault("reactions", {})
-                senders: list[str] = reactions.setdefault(emoji, [])
-                if sender_id not in senders:
-                    senders.append(sender_id)
-                self._schedule_save()
-                return True
-        return False
-
     def _check_date_rollover(self) -> None:
         """Reset daily counter if date has changed."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

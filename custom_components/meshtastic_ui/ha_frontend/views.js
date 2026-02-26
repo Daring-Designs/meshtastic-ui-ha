@@ -412,7 +412,6 @@ export class MeshMessagesTab extends LitElement {
       nodes: { type: Object },
       unreadCounts: { type: Object },
       _replyTo: { type: Object },
-      _emojiPickerTarget: { type: Number },
     };
   }
 
@@ -428,7 +427,6 @@ export class MeshMessagesTab extends LitElement {
     this.unreadCounts = {};
     this._messageInput = "";
     this._replyTo = null;
-    this._emojiPickerTarget = null;
     this._longPressTimer = null;
     this._longPressTarget = null;
   }
@@ -554,7 +552,7 @@ export class MeshMessagesTab extends LitElement {
         .conversation-item.active .conv-badge { background: rgba(255,255,255,0.3); }
         .conversation-item { display: flex; align-items: center; }
 
-        /* Reply & Reaction UI */
+        /* Reply UI */
         .chat-bubble-wrapper {
           display: flex;
           flex-direction: column;
@@ -597,21 +595,6 @@ export class MeshMessagesTab extends LitElement {
           color: var(--primary-text-color);
         }
 
-        .emoji-picker {
-          display: flex; gap: 4px;
-          background: var(--card-background-color);
-          border: 1px solid var(--divider-color);
-          border-radius: 20px; padding: 4px 8px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-          margin-bottom: 4px;
-        }
-        .emoji-pick-btn {
-          background: none; border: none; cursor: pointer;
-          font-size: 20px; padding: 2px 4px; line-height: 1;
-          border-radius: 6px;
-        }
-        .emoji-pick-btn:hover { background: var(--secondary-background-color); }
-
         .reply-banner {
           display: flex; align-items: center; gap: 8px;
           padding: 8px 14px;
@@ -646,23 +629,6 @@ export class MeshMessagesTab extends LitElement {
           border-left-color: rgba(255,255,255,0.5);
         }
         .quoted-reply .quoted-sender { font-weight: 600; }
-
-        .reactions-row {
-          display: flex; gap: 4px; margin-top: 2px;
-          flex-wrap: wrap; padding: 0 4px;
-        }
-        .reaction-pill {
-          display: inline-flex; align-items: center; gap: 3px;
-          padding: 2px 8px; border-radius: 12px;
-          background: var(--secondary-background-color);
-          border: 1px solid var(--divider-color);
-          font-size: 12px; cursor: default;
-        }
-        .reaction-pill .reaction-emoji { font-size: 14px; }
-        .reaction-pill .reaction-count {
-          font-size: 11px; font-weight: 600;
-          color: var(--secondary-text-color);
-        }
 
         @media (hover: none) {
           .bubble-actions { display: none !important; }
@@ -728,8 +694,6 @@ export class MeshMessagesTab extends LitElement {
         <div class="chat-area">
           <div class="chat-messages">
             ${currentMessages.map((msg) => {
-              // Skip standalone emoji reaction messages (they're stored inline on the target)
-              if (msg.emoji) return "";
               const isOutgoing = msg.type === "sent" || msg._outgoing;
               const senderName = this._getNodeName(msg.from) || msg.from || "Unknown";
               const delivery = msg.packet_id ? this.deliveryStatuses[msg.packet_id] : null;
@@ -740,21 +704,12 @@ export class MeshMessagesTab extends LitElement {
               if (msg.reply_id) {
                 quotedMsg = currentMessages.find((m) => m.message_id === msg.reply_id);
               }
-              const reactions = msg.reactions || {};
-              const reactionEntries = Object.entries(reactions);
               return html`
                 <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"}"
                   @touchstart=${hasActions ? (e) => this._onTouchStart(e, msgId) : null}
                   @touchend=${hasActions ? () => this._onTouchEnd() : null}
                   @touchcancel=${hasActions ? () => this._onTouchEnd() : null}
                 >
-                  ${this._emojiPickerTarget === msgId ? html`
-                    <div class="emoji-picker">
-                      ${["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDC4E"].map((em) => html`
-                        <button class="emoji-pick-btn" @click=${() => this._sendReaction(msgId, em)}>${em}</button>
-                      `)}
-                    </div>
-                  ` : ""}
                   <div class="bubble-row">
                     <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
                       <div class="sender">${senderName}</div>
@@ -772,20 +727,9 @@ export class MeshMessagesTab extends LitElement {
                     ${hasActions ? html`
                       <div class="bubble-actions">
                         <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title="Reply">\u21A9</button>
-                        <button class="bubble-action-btn" @click=${() => this._toggleEmojiPicker(msgId)} title="React">\u263A</button>
                       </div>
                     ` : ""}
                   </div>
-                  ${reactionEntries.length ? html`
-                    <div class="reactions-row">
-                      ${reactionEntries.map(([em, senders]) => html`
-                        <span class="reaction-pill" title=${(senders || []).map((s) => this._getNodeName(s) || s).join(", ")}>
-                          <span class="reaction-emoji">${em}</span>
-                          <span class="reaction-count">${(senders || []).length}</span>
-                        </span>
-                      `)}
-                    </div>
-                  ` : ""}
                 </div>
               `;
             })}
@@ -839,10 +783,6 @@ export class MeshMessagesTab extends LitElement {
       this._replyTo = null;
       return;
     }
-    if (e.key === "Escape" && this._emojiPickerTarget != null) {
-      this._emojiPickerTarget = null;
-      return;
-    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       this._sendMessage();
@@ -872,7 +812,6 @@ export class MeshMessagesTab extends LitElement {
 
   _startReply(msg) {
     this._replyTo = msg;
-    this._emojiPickerTarget = null;
     // Close any long-press actions
     this._clearActionsOpen();
     // Focus the input
@@ -880,30 +819,6 @@ export class MeshMessagesTab extends LitElement {
       const input = this.shadowRoot.querySelector(".chat-input-row input");
       if (input) input.focus();
     });
-  }
-
-  _toggleEmojiPicker(msgId) {
-    this._emojiPickerTarget = this._emojiPickerTarget === msgId ? null : msgId;
-  }
-
-  _sendReaction(targetMsgId, emoji) {
-    const defaultChannels = this.channels.length ? this.channels : ["0"];
-    const allConversations = [...defaultChannels, ...this.dms];
-    const selected = this.selectedConversation || allConversations[0] || "0";
-    this.dispatchEvent(
-      new CustomEvent("send-message", {
-        detail: {
-          text: emoji,
-          conversation: selected,
-          reply_id: targetMsgId,
-          emoji: true,
-        },
-        bubbles: true,
-        composed: true,
-      })
-    );
-    this._emojiPickerTarget = null;
-    this._clearActionsOpen();
   }
 
   _onTouchStart(e, msgId) {
