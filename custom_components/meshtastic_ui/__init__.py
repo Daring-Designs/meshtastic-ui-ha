@@ -363,6 +363,30 @@ def _handle_text_message(
     channel_key = str(packet.get("channel", 0))
     timestamp = datetime.now(timezone.utc).isoformat()
 
+    # Extract reply/reaction fields.
+    packet_id = packet.get("id")
+    reply_id = decoded.get("replyId") or decoded.get("reply_id")
+    is_emoji = decoded.get("emoji", 0)
+
+    # Broadcast destinations: ^all or !ffffffff.
+    is_broadcast = to_id in ("^all", "!ffffffff", "")
+
+    # Route emoji reactions — store on target message, don't create a standalone message.
+    if is_emoji and reply_id:
+        if is_broadcast:
+            store.add_reaction(channel_key, reply_id, sender_id, text, is_channel=True)
+        else:
+            store.add_reaction(sender_id, reply_id, sender_id, text, is_channel=False)
+        async_dispatcher_send(hass, SIGNAL_NEW_MESSAGE, {
+            "type": "reaction",
+            "target_message_id": reply_id,
+            "emoji": text,
+            "from": sender_id,
+            "channel": channel_key if is_broadcast else None,
+            "partner": sender_id if not is_broadcast else None,
+        })
+        return
+
     message: dict[str, Any] = {
         "text": text,
         "from": sender_id,
@@ -370,9 +394,10 @@ def _handle_text_message(
         "timestamp": timestamp,
         "channel": channel_key,
     }
-
-    # Broadcast destinations: ^all or !ffffffff.
-    is_broadcast = to_id in ("^all", "!ffffffff", "")
+    if packet_id is not None:
+        message["message_id"] = packet_id
+    if reply_id:
+        message["reply_id"] = reply_id
 
     if is_broadcast:
         store.add_channel_message(channel_key, message)

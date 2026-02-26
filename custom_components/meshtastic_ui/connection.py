@@ -225,6 +225,8 @@ class MeshtasticConnection:
         text: str,
         destination_id: str | None = None,
         channel_index: int = 0,
+        reply_id: int | None = None,
+        emoji: bool = False,
     ) -> int | None:
         """Send a text message via the radio. Returns the packet ID if available."""
         if self._interface is None:
@@ -233,12 +235,14 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _send() -> int | None:
+            kwargs: dict[str, Any] = {"channelIndex": channel_index}
             if destination_id:
-                meshPacket = iface.sendText(
-                    text, destinationId=destination_id, channelIndex=channel_index
-                )
-            else:
-                meshPacket = iface.sendText(text, channelIndex=channel_index)
+                kwargs["destinationId"] = destination_id
+            if reply_id is not None:
+                kwargs["replyId"] = reply_id
+            if emoji:
+                kwargs["emoji"] = 1
+            meshPacket = iface.sendText(text, **kwargs)
             if meshPacket and hasattr(meshPacket, "id"):
                 return meshPacket.id
             return None

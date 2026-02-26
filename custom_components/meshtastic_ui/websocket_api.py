@@ -347,6 +347,8 @@ def ws_subscribe_delivery(
         vol.Required("text"): str,
         vol.Optional("channel"): int,
         vol.Optional("to"): str,
+        vol.Optional("reply_id"): int,
+        vol.Optional("emoji"): bool,
     }
 )
 @async_response
@@ -361,6 +363,8 @@ async def ws_send_message(
     text = msg["text"]
     channel = msg.get("channel", 0)
     to = msg.get("to")
+    reply_id = msg.get("reply_id")
+    is_emoji = msg.get("emoji", False)
 
     # Determine local node ID for the outgoing message.
     local_node_id = None
@@ -371,7 +375,8 @@ async def ws_send_message(
 
     try:
         packet_id = await conn.async_send_text(
-            text, destination_id=to, channel_index=channel
+            text, destination_id=to, channel_index=channel,
+            reply_id=reply_id, emoji=is_emoji,
         )
         # Register for delivery tracking.
         if packet_id is not None:
@@ -383,6 +388,35 @@ async def ws_send_message(
                 "_ts": time.time(),
             }
 
+        # Handle outgoing emoji reactions — store on target message, not as standalone.
+        if is_emoji and reply_id:
+            sender_id = local_node_id or "local"
+            if to:
+                store.add_reaction(to, reply_id, sender_id, text, is_channel=False)
+                async_dispatcher_send(hass, SIGNAL_NEW_MESSAGE, {
+                    "type": "reaction",
+                    "target_message_id": reply_id,
+                    "emoji": text,
+                    "from": sender_id,
+                    "channel": None,
+                    "partner": to,
+                })
+            else:
+                channel_key = str(channel)
+                store.add_reaction(channel_key, reply_id, sender_id, text, is_channel=True)
+                async_dispatcher_send(hass, SIGNAL_NEW_MESSAGE, {
+                    "type": "reaction",
+                    "target_message_id": reply_id,
+                    "emoji": text,
+                    "from": sender_id,
+                    "channel": channel_key,
+                    "partner": None,
+                })
+            connection.send_result(
+                msg["id"], {"success": True, "packet_id": packet_id}
+            )
+            return
+
         # Store and dispatch the outgoing message so the UI shows it.
         timestamp = datetime.now(timezone.utc).isoformat()
         out_msg: dict[str, Any] = {
@@ -393,6 +427,9 @@ async def ws_send_message(
         }
         if packet_id is not None:
             out_msg["packet_id"] = packet_id
+            out_msg["message_id"] = packet_id
+        if reply_id:
+            out_msg["reply_id"] = reply_id
 
         if to:
             # DM

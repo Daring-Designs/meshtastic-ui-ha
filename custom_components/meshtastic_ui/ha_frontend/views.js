@@ -410,6 +410,8 @@ export class MeshMessagesTab extends LitElement {
       deliveryStatuses: { type: Object },
       nodes: { type: Object },
       unreadCounts: { type: Object },
+      _replyTo: { type: Object },
+      _emojiPickerTarget: { type: Number },
     };
   }
 
@@ -423,6 +425,10 @@ export class MeshMessagesTab extends LitElement {
     this.nodes = {};
     this.unreadCounts = {};
     this._messageInput = "";
+    this._replyTo = null;
+    this._emojiPickerTarget = null;
+    this._longPressTimer = null;
+    this._longPressTarget = null;
   }
 
   static get styles() {
@@ -543,6 +549,118 @@ export class MeshMessagesTab extends LitElement {
         .conversation-item.active .conv-badge { background: rgba(255,255,255,0.3); }
         .conversation-item { display: flex; align-items: center; }
 
+        /* Reply & Reaction UI */
+        .chat-bubble-wrapper {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+        }
+        .chat-bubble-wrapper.outgoing { align-items: flex-end; }
+        .chat-bubble-wrapper.incoming { align-items: flex-start; }
+
+        .bubble-actions {
+          display: none;
+          position: absolute;
+          top: 4px;
+          gap: 2px;
+          z-index: 10;
+        }
+        .chat-bubble-wrapper.incoming .bubble-actions { right: -60px; }
+        .chat-bubble-wrapper.outgoing .bubble-actions { left: -60px; }
+        .chat-bubble-wrapper:hover .bubble-actions,
+        .chat-bubble-wrapper.actions-open .bubble-actions { display: flex; }
+
+        .bubble-action-btn {
+          width: 28px; height: 28px;
+          border-radius: 50%;
+          border: 1px solid var(--divider-color);
+          background: var(--card-background-color);
+          cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 14px; line-height: 1;
+          color: var(--secondary-text-color);
+          padding: 0;
+        }
+        .bubble-action-btn:hover {
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color);
+        }
+
+        .emoji-picker {
+          display: flex; gap: 4px;
+          position: absolute; bottom: 100%; margin-bottom: 4px;
+          background: var(--card-background-color);
+          border: 1px solid var(--divider-color);
+          border-radius: 20px; padding: 4px 8px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          z-index: 20;
+        }
+        .chat-bubble-wrapper.outgoing .emoji-picker { right: 0; }
+        .chat-bubble-wrapper.incoming .emoji-picker { left: 0; }
+        .emoji-pick-btn {
+          background: none; border: none; cursor: pointer;
+          font-size: 20px; padding: 2px 4px; line-height: 1;
+          border-radius: 6px;
+        }
+        .emoji-pick-btn:hover { background: var(--secondary-background-color); }
+
+        .reply-banner {
+          display: flex; align-items: center; gap: 8px;
+          padding: 8px 14px;
+          background: var(--secondary-background-color);
+          border-left: 3px solid var(--primary-color);
+          border-radius: 8px;
+          margin-bottom: 8px; flex-shrink: 0;
+          font-size: 13px;
+        }
+        .reply-banner .reply-text {
+          flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          color: var(--primary-text-color);
+        }
+        .reply-banner .reply-sender {
+          font-weight: 600; color: var(--primary-color); margin-right: 6px;
+        }
+        .reply-banner .reply-cancel {
+          background: none; border: none; cursor: pointer;
+          font-size: 18px; color: var(--secondary-text-color);
+          padding: 0 4px; line-height: 1;
+        }
+        .reply-banner .reply-cancel:hover { color: var(--primary-text-color); }
+
+        .quoted-reply {
+          border-left: 2px solid var(--primary-color);
+          padding: 2px 8px; margin-bottom: 4px;
+          font-size: 12px; opacity: 0.8;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          max-width: 250px;
+        }
+        .chat-bubble.outgoing .quoted-reply {
+          border-left-color: rgba(255,255,255,0.5);
+        }
+        .quoted-reply .quoted-sender { font-weight: 600; }
+
+        .reactions-row {
+          display: flex; gap: 4px; margin-top: 2px;
+          flex-wrap: wrap; padding: 0 4px;
+        }
+        .reaction-pill {
+          display: inline-flex; align-items: center; gap: 3px;
+          padding: 2px 8px; border-radius: 12px;
+          background: var(--secondary-background-color);
+          border: 1px solid var(--divider-color);
+          font-size: 12px; cursor: default;
+        }
+        .reaction-pill .reaction-emoji { font-size: 14px; }
+        .reaction-pill .reaction-count {
+          font-size: 11px; font-weight: 600;
+          color: var(--secondary-text-color);
+        }
+
+        @media (hover: none) {
+          .bubble-actions { display: none !important; }
+          .chat-bubble-wrapper.actions-open .bubble-actions { display: flex !important; }
+        }
+
         @media (max-width: 600px) {
           .messages-layout { flex-direction: column; }
           .conversation-list {
@@ -602,16 +720,62 @@ export class MeshMessagesTab extends LitElement {
         <div class="chat-area">
           <div class="chat-messages">
             ${currentMessages.map((msg) => {
+              // Skip standalone emoji reaction messages (they're stored inline on the target)
+              if (msg.emoji) return "";
               const isOutgoing = msg.type === "sent" || msg._outgoing;
               const senderName = this._getNodeName(msg.from) || msg.from || "Unknown";
               const delivery = msg.packet_id ? this.deliveryStatuses[msg.packet_id] : null;
+              const msgId = msg.message_id;
+              const hasActions = msgId != null;
+              // Look up quoted reply
+              let quotedMsg = null;
+              if (msg.reply_id) {
+                quotedMsg = currentMessages.find((m) => m.message_id === msg.reply_id);
+              }
+              const reactions = msg.reactions || {};
+              const reactionEntries = Object.entries(reactions);
               return html`
-                <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
-                  <div class="sender">${senderName}</div>
-                  <div>${msg.text}</div>
-                  <div class="time">
-                    ${formatTime(msg.timestamp)}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
+                <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"}"
+                  @touchstart=${hasActions ? (e) => this._onTouchStart(e, msgId) : null}
+                  @touchend=${hasActions ? () => this._onTouchEnd() : null}
+                  @touchcancel=${hasActions ? () => this._onTouchEnd() : null}
+                >
+                  ${hasActions ? html`
+                    <div class="bubble-actions">
+                      <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title="Reply">\u21A9</button>
+                      <button class="bubble-action-btn" @click=${() => this._toggleEmojiPicker(msgId)} title="React">\u263A</button>
+                    </div>
+                  ` : ""}
+                  ${this._emojiPickerTarget === msgId ? html`
+                    <div class="emoji-picker">
+                      ${["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDC4E"].map((em) => html`
+                        <button class="emoji-pick-btn" @click=${() => this._sendReaction(msgId, em)}>${em}</button>
+                      `)}
+                    </div>
+                  ` : ""}
+                  <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
+                    <div class="sender">${senderName}</div>
+                    ${quotedMsg ? html`
+                      <div class="quoted-reply">
+                        <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || "Unknown"}</span>
+                        ${(quotedMsg.text || "").slice(0, 60)}${(quotedMsg.text || "").length > 60 ? "\u2026" : ""}
+                      </div>
+                    ` : ""}
+                    <div>${msg.text}</div>
+                    <div class="time">
+                      ${formatTime(msg.timestamp)}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
+                    </div>
                   </div>
+                  ${reactionEntries.length ? html`
+                    <div class="reactions-row">
+                      ${reactionEntries.map(([em, senders]) => html`
+                        <span class="reaction-pill" title=${(senders || []).map((s) => this._getNodeName(s) || s).join(", ")}>
+                          <span class="reaction-emoji">${em}</span>
+                          <span class="reaction-count">${(senders || []).length}</span>
+                        </span>
+                      `)}
+                    </div>
+                  ` : ""}
                 </div>
               `;
             })}
@@ -626,10 +790,18 @@ export class MeshMessagesTab extends LitElement {
             ` : ""}
           </div>
 
+          ${this._replyTo ? html`
+            <div class="reply-banner">
+              <span class="reply-sender">${this._getNodeName(this._replyTo.from) || this._replyTo.from || "Unknown"}</span>
+              <span class="reply-text">${(this._replyTo.text || "").slice(0, 80)}${(this._replyTo.text || "").length > 80 ? "\u2026" : ""}</span>
+              <button class="reply-cancel" @click=${() => { this._replyTo = null; }}>\u00D7</button>
+            </div>
+          ` : ""}
+
           <div class="chat-input-row">
             <input
               type="text"
-              placeholder="Type a message..."
+              placeholder="${this._replyTo ? "Reply\u2026" : "Type a message\u2026"}"
               .value=${this._messageInput}
               @input=${(e) => { this._messageInput = e.target.value; this.requestUpdate(); }}
               @keydown=${this._onKeydown}
@@ -653,6 +825,14 @@ export class MeshMessagesTab extends LitElement {
   }
 
   _onKeydown(e) {
+    if (e.key === "Escape" && this._replyTo) {
+      this._replyTo = null;
+      return;
+    }
+    if (e.key === "Escape" && this._emojiPickerTarget != null) {
+      this._emojiPickerTarget = null;
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       this._sendMessage();
@@ -664,15 +844,82 @@ export class MeshMessagesTab extends LitElement {
     const defaultChannels = this.channels.length ? this.channels : ["0"];
     const allConversations = [...defaultChannels, ...this.dms];
     const selected = this.selectedConversation || allConversations[0] || "0";
+    const detail = { text: this._messageInput, conversation: selected };
+    if (this._replyTo?.message_id != null) {
+      detail.reply_id = this._replyTo.message_id;
+    }
     this.dispatchEvent(
       new CustomEvent("send-message", {
-        detail: { text: this._messageInput, conversation: selected },
+        detail,
         bubbles: true,
         composed: true,
       })
     );
     this._messageInput = "";
+    this._replyTo = null;
     this.requestUpdate();
+  }
+
+  _startReply(msg) {
+    this._replyTo = msg;
+    this._emojiPickerTarget = null;
+    // Close any long-press actions
+    this._clearActionsOpen();
+    // Focus the input
+    this.updateComplete.then(() => {
+      const input = this.shadowRoot.querySelector(".chat-input-row input");
+      if (input) input.focus();
+    });
+  }
+
+  _toggleEmojiPicker(msgId) {
+    this._emojiPickerTarget = this._emojiPickerTarget === msgId ? null : msgId;
+  }
+
+  _sendReaction(targetMsgId, emoji) {
+    const defaultChannels = this.channels.length ? this.channels : ["0"];
+    const allConversations = [...defaultChannels, ...this.dms];
+    const selected = this.selectedConversation || allConversations[0] || "0";
+    this.dispatchEvent(
+      new CustomEvent("send-message", {
+        detail: {
+          text: emoji,
+          conversation: selected,
+          reply_id: targetMsgId,
+          emoji: true,
+        },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    this._emojiPickerTarget = null;
+    this._clearActionsOpen();
+  }
+
+  _onTouchStart(e, msgId) {
+    this._longPressTimer = setTimeout(() => {
+      // Toggle actions-open class on the wrapper
+      const wrapper = e.currentTarget;
+      if (wrapper) {
+        this._clearActionsOpen();
+        wrapper.classList.add("actions-open");
+        this._longPressTarget = wrapper;
+      }
+    }, 500);
+  }
+
+  _onTouchEnd() {
+    if (this._longPressTimer) {
+      clearTimeout(this._longPressTimer);
+      this._longPressTimer = null;
+    }
+  }
+
+  _clearActionsOpen() {
+    if (this._longPressTarget) {
+      this._longPressTarget.classList.remove("actions-open");
+      this._longPressTarget = null;
+    }
   }
 
   get _byteCount() {
