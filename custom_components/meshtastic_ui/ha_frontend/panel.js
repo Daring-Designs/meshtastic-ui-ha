@@ -19,6 +19,13 @@ const TAB_LABELS = {
   settings: "Settings",
 };
 
+function _tabFromPath() {
+  // Extract tab from URL path: /meshtastic-ui/messages → "messages"
+  const parts = location.pathname.replace(/\/+$/, "").split("/");
+  const tab = parts[parts.length - 1];
+  return TABS.includes(tab) ? tab : null;
+}
+
 class MeshtasticUiPanel extends LitElement {
   static get properties() {
     return {
@@ -55,7 +62,7 @@ class MeshtasticUiPanel extends LitElement {
 
   constructor() {
     super();
-    this._activeTab = "radio";
+    this._activeTab = _tabFromPath() || "radio";
     this._gateways = [];
     this._messages = {};
     this._channels = [];
@@ -94,6 +101,19 @@ class MeshtasticUiPanel extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // Sync URL to current tab (replace, not push, on initial load).
+    const basePath = this.panel?.url_path || "meshtastic-ui";
+    if (!_tabFromPath()) {
+      history.replaceState(null, "", `/${basePath}/${this._activeTab}`);
+    }
+    this._popstateHandler = () => {
+      const tab = _tabFromPath();
+      if (tab && tab !== this._activeTab) {
+        this._activeTab = tab;
+        this._onTabActivated(tab);
+      }
+    };
+    window.addEventListener("popstate", this._popstateHandler);
     this._loadData();
     // Poll backend for time-series data (collected server-side even with no UI open)
     if (!this._tsPollingId) {
@@ -125,6 +145,10 @@ class MeshtasticUiPanel extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    if (this._popstateHandler) {
+      window.removeEventListener("popstate", this._popstateHandler);
+      this._popstateHandler = null;
+    }
     this._teardownConnection();
     if (this._tsPollingId) {
       clearInterval(this._tsPollingId);
@@ -415,7 +439,14 @@ class MeshtasticUiPanel extends LitElement {
   /* ── Tab switching ── */
 
   _setTab(tab) {
+    if (tab === this._activeTab) return;
     this._activeTab = tab;
+    const basePath = this.panel?.url_path || "meshtastic-ui";
+    history.pushState(null, "", `/${basePath}/${tab}`);
+    this._onTabActivated(tab);
+  }
+
+  _onTabActivated(tab) {
     if (tab === "radio") { this._loadGateways(); this._loadTimeSeries(); }
     if (tab === "nodes") this._loadNodes();
     if (tab === "map") { this._loadNodes(); this._loadWaypoints(); this._loadTraceroutes(); }
@@ -473,7 +504,7 @@ class MeshtasticUiPanel extends LitElement {
         this._dms = [...this._dms, nodeId];
       }
       this._selectedConversation = nodeId;
-      this._activeTab = "messages";
+      this._setTab("messages");
       this._nodeDialogId = null;
       if (nodesTab) nodesTab.closeDialog();
     } else if (action === "trace-route") {
