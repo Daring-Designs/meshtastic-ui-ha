@@ -21,13 +21,13 @@ A Meshtastic node plugged into your Home Assistant server becomes an **always-on
 
 ## Screenshots
 
-| Radio | Nodes | Map |
+| Radio | Messages | Nodes |
 |:---:|:---:|:---:|
-| ![Radio Tab](docs/screenshots/radio-tab.png) | ![Nodes Tab](docs/screenshots/nodes-tab.png) | ![Map Tab](docs/screenshots/map-tab.png) |
+| ![Radio Tab](docs/screenshots/radio-tab.png) | ![Messages Tab](docs/screenshots/messages-tab.png) | ![Nodes Tab](docs/screenshots/nodes-tab.png) |
 
-| Settings | Node Detail | Notifications |
+| Map | Settings | Node Detail |
 |:---:|:---:|:---:|
-| ![Settings Tab](docs/screenshots/settings-tab.png) | ![Node Detail](docs/screenshots/node-detail.png) | ![Notifications](docs/screenshots/notifications.png) |
+| ![Map Tab](docs/screenshots/map-tab.png) | ![Settings Tab](docs/screenshots/settings-tab.png) | ![Node Detail](docs/screenshots/node-detail.png) |
 
 ## Features
 
