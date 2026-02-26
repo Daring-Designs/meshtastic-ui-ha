@@ -138,6 +138,7 @@ class MeshtasticUiPanel extends LitElement {
   /* ── Data loading ── */
 
   async _loadData() {
+    this._deliveryStatuses = {};
     await this._loadGateways();
     await this._loadMessages();
     await this._loadNodes();
@@ -430,7 +431,7 @@ class MeshtasticUiPanel extends LitElement {
     if (reply_id != null) data.reply_id = reply_id;
     if (emoji) data.emoji = true;
     const result = await this._wsCommand("meshtastic_ui/send_message", data);
-    if (result?.packet_id && !emoji) {
+    if (result?.packet_id && !emoji && !this._deliveryStatuses[result.packet_id]) {
       this._deliveryStatuses = {
         ...this._deliveryStatuses,
         [result.packet_id]: { status: "pending" },
