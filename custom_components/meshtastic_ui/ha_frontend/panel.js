@@ -88,6 +88,8 @@ class MeshtasticUiPanel extends LitElement {
     this._unsubWaypointsFn = null;
     this._unsubTraceroutesFn = null;
     this._subscribing = false;
+    this._subscribeGen = 0;
+    this._removeConnListeners = null;
   }
 
   connectedCallback() {
@@ -103,18 +105,17 @@ class MeshtasticUiPanel extends LitElement {
     if (changed.has("hass") && this.hass) {
       const conn = this.hass.connection;
       if (this._prevConnection && this._prevConnection !== conn) {
-        // Connection was replaced (reconnect) — reload everything
-        this._unsubscribeFn = null;
-        this._unsubNodesFn = null;
-        this._unsubDeliveryFn = null;
-        this._unsubWaypointsFn = null;
-        this._unsubTraceroutesFn = null;
-        this._subscribing = false;
+        // Connection object was replaced — tear down and reload.
+        this._teardownConnection();
         this._prevConnection = conn;
+        this._setupConnectionListeners(conn);
         this._loadData();
         return;
       }
-      this._prevConnection = conn;
+      if (!this._prevConnection) {
+        this._prevConnection = conn;
+        this._setupConnectionListeners(conn);
+      }
       if (!this._unsubscribeFn && !this._subscribing) {
         // hass wasn't available during connectedCallback — retry
         this._loadData();
@@ -124,7 +125,7 @@ class MeshtasticUiPanel extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._unsubscribe();
+    this._teardownConnection();
     if (this._tsPollingId) {
       clearInterval(this._tsPollingId);
       this._tsPollingId = null;
@@ -133,6 +134,37 @@ class MeshtasticUiPanel extends LitElement {
       clearTimeout(this._tracerouteTimeoutId);
       this._tracerouteTimeoutId = null;
     }
+  }
+
+  _setupConnectionListeners(conn) {
+    if (this._removeConnListeners) this._removeConnListeners();
+    const onReady = () => {
+      // Internal reconnect completed — re-establish subscriptions.
+      this._resetSubscriptions();
+      this._loadData();
+    };
+    conn.addEventListener("ready", onReady);
+    this._removeConnListeners = () => {
+      conn.removeEventListener("ready", onReady);
+    };
+  }
+
+  _teardownConnection() {
+    if (this._removeConnListeners) {
+      this._removeConnListeners();
+      this._removeConnListeners = null;
+    }
+    this._unsubscribe();
+  }
+
+  _resetSubscriptions() {
+    this._subscribeGen++;
+    this._unsubscribeFn = null;
+    this._unsubNodesFn = null;
+    this._unsubDeliveryFn = null;
+    this._unsubWaypointsFn = null;
+    this._unsubTraceroutesFn = null;
+    this._subscribing = false;
   }
 
   /* ── Data loading ── */
@@ -237,14 +269,24 @@ class MeshtasticUiPanel extends LitElement {
     this._subscribing = true;
 
     const conn = this.hass.connection;
+    const gen = ++this._subscribeGen;
+
+    const safeThen = (key) => (unsub) => {
+      if (this._subscribeGen !== gen) {
+        // Connection changed since this subscribe was initiated — discard.
+        try { unsub(); } catch (_) {}
+        return;
+      }
+      this[key] = unsub;
+    };
 
     if (!this._unsubscribeFn) {
       conn.subscribeMessage(
         (event) => this._handleRealtimeMessage(event),
         { type: "meshtastic_ui/subscribe" }
       )
-      .then((unsub) => { this._unsubscribeFn = unsub; })
-      .catch((err) => console.error("Failed to subscribe:", err));
+      .then(safeThen("_unsubscribeFn"))
+      .catch((err) => console.warn("Subscribe failed:", err));
     }
 
     if (!this._unsubNodesFn) {
@@ -252,8 +294,8 @@ class MeshtasticUiPanel extends LitElement {
         (event) => this._handleNodeUpdate(event),
         { type: "meshtastic_ui/subscribe_nodes" }
       )
-      .then((unsub) => { this._unsubNodesFn = unsub; })
-      .catch((err) => console.error("Failed to subscribe nodes:", err));
+      .then(safeThen("_unsubNodesFn"))
+      .catch((err) => console.warn("Subscribe nodes failed:", err));
     }
 
     if (!this._unsubDeliveryFn) {
@@ -261,8 +303,8 @@ class MeshtasticUiPanel extends LitElement {
         (event) => this._handleDeliveryStatus(event),
         { type: "meshtastic_ui/subscribe_delivery" }
       )
-      .then((unsub) => { this._unsubDeliveryFn = unsub; })
-      .catch((err) => console.error("Failed to subscribe delivery:", err));
+      .then(safeThen("_unsubDeliveryFn"))
+      .catch((err) => console.warn("Subscribe delivery failed:", err));
     }
 
     if (!this._unsubWaypointsFn) {
@@ -270,8 +312,8 @@ class MeshtasticUiPanel extends LitElement {
         (event) => this._handleWaypointUpdate(event),
         { type: "meshtastic_ui/subscribe_waypoints" }
       )
-      .then((unsub) => { this._unsubWaypointsFn = unsub; })
-      .catch((err) => console.error("Failed to subscribe waypoints:", err));
+      .then(safeThen("_unsubWaypointsFn"))
+      .catch((err) => console.warn("Subscribe waypoints failed:", err));
     }
 
     if (!this._unsubTraceroutesFn) {
@@ -279,19 +321,20 @@ class MeshtasticUiPanel extends LitElement {
         (event) => this._handleTracerouteResult(event),
         { type: "meshtastic_ui/subscribe_traceroutes" }
       )
-      .then((unsub) => { this._unsubTraceroutesFn = unsub; })
-      .catch((err) => console.error("Failed to subscribe traceroutes:", err));
+      .then(safeThen("_unsubTraceroutesFn"))
+      .catch((err) => console.warn("Subscribe traceroutes failed:", err));
     }
   }
 
   _unsubscribe() {
+    this._subscribeGen++;
     const fns = [
       "_unsubscribeFn", "_unsubNodesFn", "_unsubDeliveryFn",
       "_unsubWaypointsFn", "_unsubTraceroutesFn",
     ];
     for (const key of fns) {
       if (this[key]) {
-        try { const r = this[key](); if (r && r.catch) r.catch(() => {}); } catch (_) {}
+        try { const r = this[key](); if (r && r.then) r.catch(() => {}); } catch (_) {}
         this[key] = null;
       }
     }
