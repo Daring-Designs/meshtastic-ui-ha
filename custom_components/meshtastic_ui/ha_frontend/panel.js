@@ -69,6 +69,7 @@ class MeshtasticUiPanel extends LitElement {
       _showNotificationModal: { type: Boolean },
       _nodeDialogId: { type: String },
       _nodeDialogFeedback: { type: String },
+      _showReconnectBanner: { type: Boolean },
     };
   }
 
@@ -97,6 +98,8 @@ class MeshtasticUiPanel extends LitElement {
     this._showNotificationModal = false;
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
+    this._showReconnectBanner = false;
+    this._wsFailCount = 0;
     this._timeSeries = null;
     this._packetTypes = null;
     this._chartWindow = parseInt(localStorage.getItem("meshtastic_chart_window"), 10) || 3600;
@@ -139,6 +142,8 @@ class MeshtasticUiPanel extends LitElement {
       if (this._prevConnection && this._prevConnection !== conn) {
         this._resetSubscriptions();
         this._prevConnection = conn;
+        this._wsFailCount = 0;
+        this._showReconnectBanner = false;
         this._loadData();
         return;
       }
@@ -197,9 +202,15 @@ class MeshtasticUiPanel extends LitElement {
   async _wsCommand(type, data = {}) {
     if (!this.hass) return null;
     try {
-      return await this.hass.callWS({ type, ...data });
+      const result = await this.hass.callWS({ type, ...data });
+      if (this._wsFailCount > 0) {
+        this._wsFailCount = 0;
+        this._showReconnectBanner = false;
+      }
+      return result;
     } catch (err) {
-      console.error(`WS command ${type} failed:`, err);
+      this._wsFailCount++;
+      if (this._wsFailCount >= 2) this._showReconnectBanner = true;
       return null;
     }
   }
@@ -634,6 +645,16 @@ class MeshtasticUiPanel extends LitElement {
       }
       .bell-icon:hover { color: var(--primary-text-color); }
 
+      .reconnect-banner {
+        display: flex; align-items: center; justify-content: center; gap: 12px;
+        padding: 10px 16px;
+        background: var(--warning-color, #ff9800);
+        color: #fff; font-size: 14px; font-weight: 500;
+        cursor: pointer; user-select: none;
+      }
+      .reconnect-banner:hover { filter: brightness(1.1); }
+      .reconnect-banner ha-icon { --mdc-icon-size: 18px; }
+
       .notification-modal {
         position: fixed; top: 0; left: 0; right: 0; bottom: 0;
         background: rgba(0,0,0,0.5); z-index: 2000;
@@ -842,6 +863,12 @@ class MeshtasticUiPanel extends LitElement {
             style="--mdc-icon-size: 20px;"></ha-icon>
         </div>
       </div>
+      ${this._showReconnectBanner ? html`
+        <div class="reconnect-banner" @click=${() => location.reload()}>
+          <ha-icon icon="mdi:connection"></ha-icon>
+          Connection lost — click to refresh
+        </div>
+      ` : ""}
       <div class="content">
         ${this._renderActiveTab()}
       </div>
