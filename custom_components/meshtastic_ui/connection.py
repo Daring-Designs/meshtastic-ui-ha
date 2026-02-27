@@ -35,7 +35,7 @@ def _apply_protobuf_values(
                 # Field exists on the object but not in descriptor (oneof, etc.).
                 try:
                     setattr(proto_obj, key, value)
-                except (AttributeError, TypeError):
+                except (AttributeError, TypeError, ValueError):
                     _LOGGER.warning(
                         "Cannot set field '%s' in %s", key, context or "config"
                     )
@@ -63,11 +63,22 @@ def _apply_protobuf_values(
             del repeated[:]
             if isinstance(value, (list, tuple)):
                 repeated.extend(value)
+        elif field.type == FieldDescriptor.TYPE_ENUM and isinstance(value, str):
+            # Enum field sent as string name (e.g. "ENABLED") — resolve to int.
+            enum_type = field.enum_type
+            enum_val = enum_type.values_by_name.get(value) if enum_type else None
+            if enum_val is not None:
+                setattr(proto_obj, key, enum_val.number)
+            else:
+                _LOGGER.warning(
+                    "Unknown enum value '%s' for field '%s' in '%s'",
+                    value, key, context or "config",
+                )
         else:
             # Scalar field — direct assignment.
             try:
                 setattr(proto_obj, key, value)
-            except (AttributeError, TypeError) as err:
+            except (AttributeError, TypeError, ValueError) as err:
                 _LOGGER.warning(
                     "Cannot set field '%s' in '%s': %s", key, context or "config", err
                 )
