@@ -351,13 +351,16 @@ class MeshtasticUiPanel extends LitElement {
 
   _unsubscribe() {
     this._subscribeGen++;
+    const connected = this.hass?.connection?.connected;
     const fns = [
       "_unsubscribeFn", "_unsubNodesFn", "_unsubDeliveryFn",
       "_unsubWaypointsFn", "_unsubTraceroutesFn",
     ];
     for (const key of fns) {
       if (this[key]) {
-        try { const r = this[key](); if (r && r.then) r.catch(() => {}); } catch (_) {}
+        if (connected) {
+          try { const r = this[key](); if (r && r.then) r.catch(() => {}); } catch (_) {}
+        }
         this[key] = null;
       }
     }
