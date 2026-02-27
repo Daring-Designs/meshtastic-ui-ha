@@ -10,21 +10,15 @@ import "./settings.js";
 
 const TS_POLL_MS = 10000;  // poll backend for time-series every 10s
 
-const MESH_DEBUG = true;  // temporary — remove after diagnosing subscription errors
-function meshDebug(...args) { if (MESH_DEBUG) console.log("[MESH-WS]", ...args); }
-
-// Install rejection handler at module level so it catches errors even before
-// the component mounts (e.g. during HA's own subscription replay on page load).
+// Suppress "Subscription not found" unhandled rejections from home-assistant-js-websocket.
+// When our component disconnects while the WS connection is closing, unsub() sends
+// unsubscribe_events that the server rejects (subscriptions already cleaned up).
+// The library doesn't expose the promise from its internal sendMessagePromise call,
+// so the rejection is unhandled.  This is harmless — suppress it.
 window.addEventListener("unhandledrejection", (e) => {
   const r = e.reason;
   if (r && typeof r === "object" && r.code === "not_found") {
-    meshDebug("Suppressed unhandled rejection:", JSON.stringify(r));
     e.preventDefault();
-  }
-  // Log all other unhandled rejections too so we can check if the error
-  // has a different shape than expected.
-  else if (MESH_DEBUG && r && typeof r === "object" && r.code) {
-    meshDebug("Unhandled rejection (NOT suppressed):", JSON.stringify(r));
   }
 });
 
@@ -132,7 +126,6 @@ class MeshtasticUiPanel extends LitElement {
       }
     };
     window.addEventListener("popstate", this._popstateHandler);
-    meshDebug("connectedCallback — starting _loadData");
     this._loadData();
     // Poll backend for time-series data (collected server-side even with no UI open)
     if (!this._tsPollingId) {
@@ -144,18 +137,15 @@ class MeshtasticUiPanel extends LitElement {
     if (changed.has("hass") && this.hass) {
       const conn = this.hass.connection;
       if (this._prevConnection && this._prevConnection !== conn) {
-        meshDebug("Connection object REPLACED — resetting subscriptions");
         this._resetSubscriptions();
         this._prevConnection = conn;
         this._loadData();
         return;
       }
       if (!this._prevConnection) {
-        meshDebug("First connection captured");
         this._prevConnection = conn;
       }
       if (!this._unsubscribeFn && !this._subscribing) {
-        meshDebug("updated() — no active subs, calling _loadData");
         this._loadData();
       }
     }
@@ -168,7 +158,6 @@ class MeshtasticUiPanel extends LitElement {
       this._popstateHandler = null;
     }
     // Connection is still alive here — properly unsubscribe server-side.
-    meshDebug("disconnectedCallback — calling _unsubscribe");
     this._unsubscribe();
     this._prevConnection = null;
     if (this._tsPollingId) {
@@ -182,7 +171,6 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   _resetSubscriptions() {
-    meshDebug("_resetSubscriptions — nulling unsub refs without calling them, gen:", this._subscribeGen, "→", this._subscribeGen + 1);
     this._subscribeGen++;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -290,23 +278,17 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   _subscribe() {
-    if (!this.hass || this._subscribing) {
-      meshDebug("_subscribe — skipped (hass:", !!this.hass, "subscribing:", this._subscribing, ")");
-      return;
-    }
+    if (!this.hass || this._subscribing) return;
     this._subscribing = true;
 
     const conn = this.hass.connection;
     const gen = ++this._subscribeGen;
-    meshDebug("_subscribe — starting, gen:", gen);
 
     const safeThen = (key) => (unsub) => {
       if (this._subscribeGen !== gen) {
-        meshDebug("safeThen — STALE gen for", key, "(got:", gen, "current:", this._subscribeGen, ") — discarding unsub");
         try { unsub(); } catch (_) {}
         return;
       }
-      meshDebug("safeThen — stored unsub for", key, "gen:", gen);
       this[key] = unsub;
     };
 
@@ -358,14 +340,12 @@ class MeshtasticUiPanel extends LitElement {
 
   _unsubscribe() {
     this._subscribeGen++;
-    meshDebug("_unsubscribe — calling unsub functions, gen:", this._subscribeGen);
     const fns = [
       "_unsubscribeFn", "_unsubNodesFn", "_unsubDeliveryFn",
       "_unsubWaypointsFn", "_unsubTraceroutesFn",
     ];
     for (const key of fns) {
       if (this[key]) {
-        meshDebug("  unsub:", key);
         try { const r = this[key](); if (r && r.then) r.catch(() => {}); } catch (_) {}
         this[key] = null;
       }
