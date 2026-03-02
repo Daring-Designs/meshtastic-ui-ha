@@ -1,7 +1,7 @@
 {
   "domain": "meshtastic_ui",
   "name": "Meshtastic UI",
-  "codeowners": ["@daring-designs"],
+  "codeowners": ["@Daring-Designs"],
   "config_flow": true,
   "dependencies": ["websocket_api", "http", "frontend"],
   "documentation": "https://github.com/Daring-Designs/meshtastic-ui-ha",
