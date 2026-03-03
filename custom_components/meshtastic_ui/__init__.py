@@ -23,6 +23,7 @@ from .const import (
     CONF_TCP_PORT,
     DEFAULT_TCP_PORT,
     DOMAIN,
+    NODEINFO_REQUEST_COOLDOWN,
     SIGNAL_CONNECTION_STATE,
     SIGNAL_DELIVERY_STATUS,
     SIGNAL_NEW_MESSAGE,
@@ -76,6 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "connection": connection,
         "unsub_callbacks": [],
         "pending_acks": {},  # packet_id -> message info for delivery tracking.
+        "nodeinfo_cooldowns": {},  # node_id -> last request timestamp
         "ts": {
             "data": {k: deque(maxlen=TS_MAX_POINTS) for k in _TS_SERIES_KEYS},
             "packetTypes": {k: deque(maxlen=TS_MAX_POINTS) for k in _PACKET_TYPE_KEYS},
@@ -292,6 +294,30 @@ def _register_radio_callbacks(
             if "rssi" in packet:
                 node_update["rssi"] = packet["rssi"]
             store.update_node(sender_id, node_update)
+
+            # Auto-request node info for nameless nodes (with cooldown).
+            existing = store.get_nodes().get(sender_id, {})
+            if not existing.get("name"):
+                now = time.time()
+                cooldowns = hass.data[DOMAIN].get("nodeinfo_cooldowns", {})
+                last_req = cooldowns.get(sender_id, 0)
+                if now - last_req > NODEINFO_REQUEST_COOLDOWN:
+                    cooldowns[sender_id] = now
+                    _LOGGER.debug(
+                        "Auto-requesting node info for nameless node %s",
+                        sender_id,
+                    )
+
+                    async def _request_info(node_id: str) -> None:
+                        try:
+                            await connection.async_request_nodeinfo(node_id)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "Auto node-info request failed for %s",
+                                node_id,
+                            )
+
+                    hass.async_create_task(_request_info(sender_id))
 
     @callback
     def _on_node_update(node: dict) -> None:

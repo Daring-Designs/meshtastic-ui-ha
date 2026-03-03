@@ -62,6 +62,7 @@ class MeshtasticUiPanel extends LitElement {
       _chartWindow: { type: Number },
       _pendingTraceroute: { type: String },
       _pendingPosition: { type: String },
+      _pendingNodeinfo: { type: String },
       _tracerouteDialog: { type: Object },
       _unreadCounts: { type: Object },
       _channelNames: { type: Object },
@@ -90,6 +91,7 @@ class MeshtasticUiPanel extends LitElement {
     this._localNodeId = "";
     this._pendingTraceroute = null;
     this._pendingPosition = null;
+    this._pendingNodeinfo = null;
     this._tracerouteDialog = null;
     this._tracerouteTimeoutId = null;
     this._channelNames = {};
@@ -541,6 +543,16 @@ class MeshtasticUiPanel extends LitElement {
       this._pendingPosition = null;
       if (nodesTab) nodesTab.showFeedback(msg);
       if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
+    } else if (action === "request-nodeinfo") {
+      this._pendingNodeinfo = nodeId;
+      const result = await this._wsCommand("meshtastic_ui/call_service", {
+        service: "request_nodeinfo",
+        service_data: { destination: nodeId },
+      });
+      const msg = result?.success ? "Node info request sent" : "Node info request unavailable";
+      this._pendingNodeinfo = null;
+      if (nodesTab) nodesTab.showFeedback(msg);
+      if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
     } else if (action === "favorite" || action === "unfavorite") {
       const result = await this._wsCommand("meshtastic_ui/node_admin", {
         node_id: nodeId, action,
@@ -915,6 +927,7 @@ class MeshtasticUiPanel extends LitElement {
             .ignoredNodes=${this._ignoredNodes}
             .pendingTraceroute=${this._pendingTraceroute}
             .pendingPosition=${this._pendingPosition}
+            .pendingNodeinfo=${this._pendingNodeinfo}
             @node-action=${this._onNodeAction}
           ></mesh-nodes-tab>
         `;
@@ -1073,6 +1086,15 @@ class MeshtasticUiPanel extends LitElement {
                 ? html`<span class="spinner"></span> Requesting...`
                 : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Request Position`}
             </button>
+            ${!node.name ? html`
+            <button class="nd-btn"
+              ?disabled=${this._pendingNodeinfo === nodeId}
+              @click=${() => onAction("request-nodeinfo")}>
+              ${this._pendingNodeinfo === nodeId
+                ? html`<span class="spinner"></span> Requesting...`
+                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size:16px;"></ha-icon> Request Info`}
+            </button>
+            ` : ""}
             <button class="nd-btn" @click=${() => onAction(isIgn ? "unignore" : "ignore")}>
               <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size:16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
             </button>

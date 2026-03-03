@@ -15,6 +15,9 @@ MAX_DM_MESSAGES = 200
 NODE_RETENTION_DAYS = 7
 ACTIVE_NODE_WINDOW_SECONDS = 3600  # 1 hour
 
+# Auto node-info request cooldown (seconds per node)
+NODEINFO_REQUEST_COOLDOWN = 3600  # 1 hour
+
 # Time-series charts
 TS_POINTS = 360          # data points returned to frontend per query
 TS_MAX_POINTS = 60480    # 7 days of raw 10s data (60480 × 10s = 604800s)

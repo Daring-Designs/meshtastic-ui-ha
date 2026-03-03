@@ -320,6 +320,30 @@ class MeshtasticConnection:
 
         await self._hass.async_add_executor_job(_request)
 
+    async def async_request_nodeinfo(self, destination_id: str) -> None:
+        """Request node info from a remote node (non-blocking).
+
+        Sends an empty User proto with wantResponse=True so the remote
+        node replies with its own NODEINFO_APP packet.
+        """
+        if self._interface is None:
+            raise RuntimeError("Not connected to radio")
+
+        iface = self._interface
+
+        def _request() -> None:
+            from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+            user = mesh_pb2.User()
+            iface.sendData(
+                user,
+                destination_id,
+                portNum=portnums_pb2.NODEINFO_APP,
+                wantResponse=True,
+            )
+
+        await self._hass.async_add_executor_job(_request)
+
     async def async_get_config(self) -> dict[str, Any]:
         """Read full config from the radio (local, module, channels, owner, metadata)."""
         if self._interface is None:

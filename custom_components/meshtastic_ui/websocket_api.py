@@ -432,7 +432,7 @@ async def ws_send_message(
 @websocket_command(
     {
         vol.Required("type"): f"{WS_PREFIX}/call_service",
-        vol.Required("service"): vol.In({"trace_route", "request_position"}),
+        vol.Required("service"): vol.In({"trace_route", "request_position", "request_nodeinfo"}),
         vol.Optional("service_data"): dict,
     }
 )
@@ -440,7 +440,7 @@ async def ws_send_message(
 async def ws_call_service(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Execute a radio command (trace_route, request_position)."""
+    """Execute a radio command (trace_route, request_position, request_nodeinfo)."""
     conn = _get_connection(hass)
     service = msg["service"]
     service_data = msg.get("service_data", {})
@@ -464,6 +464,16 @@ async def ws_call_service(
                 )
                 return
             await conn.async_request_position(dest)
+            connection.send_result(msg["id"], {"success": True})
+
+        elif service == "request_nodeinfo":
+            dest = service_data.get("destination") or service_data.get("to", "")
+            if not dest:
+                connection.send_error(
+                    msg["id"], "missing_param", "destination is required"
+                )
+                return
+            await conn.async_request_nodeinfo(dest)
             connection.send_result(msg["id"], {"success": True})
 
         else:

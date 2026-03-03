@@ -871,6 +871,7 @@ export class MeshNodesTab extends LitElement {
       ignoredNodes: { type: Array },
       pendingTraceroute: { type: String },
       pendingPosition: { type: String },
+      pendingNodeinfo: { type: String },
     };
   }
 
@@ -881,6 +882,7 @@ export class MeshNodesTab extends LitElement {
     this.ignoredNodes = [];
     this.pendingTraceroute = null;
     this.pendingPosition = null;
+    this.pendingNodeinfo = null;
     this._searchText = "";
     this._filterLastHeard = "all";
     this._filterBatteryMin = 0;
@@ -1391,6 +1393,15 @@ export class MeshNodesTab extends LitElement {
                 ? html`<span class="spinner"></span> Requesting...`
                 : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Request Position`}
             </button>
+            ${!node.name ? html`
+            <button class="action-btn secondary"
+              ?disabled=${this.pendingNodeinfo === nodeId}
+              @click=${() => this._fireNodeAction("request-nodeinfo", nodeId)}>
+              ${this.pendingNodeinfo === nodeId
+                ? html`<span class="spinner"></span> Requesting...`
+                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size: 16px;"></ha-icon> Request Info`}
+            </button>
+            ` : ""}
             <button class="action-btn secondary" @click=${() => this._fireNodeAction(isIgn ? "unignore" : "ignore", nodeId)}>
               <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size: 16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
             </button>
