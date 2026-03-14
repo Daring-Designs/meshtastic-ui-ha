@@ -442,6 +442,10 @@ class MeshtasticUiPanel extends LitElement {
 
   /* ── Tab switching ── */
 
+  _toggleMenu() {
+    this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
+  }
+
   _setTab(tab) {
     if (tab === this._activeTab) return;
     this._activeTab = tab;
@@ -618,8 +622,16 @@ class MeshtasticUiPanel extends LitElement {
         padding: 0 16px;
       }
 
-      ha-menu-button {
-        flex-shrink: 0;
+      .menu-btn {
+        display: flex;
+        align-items: center;
+        padding: 12px 8px 12px 0;
+        cursor: pointer;
+        color: var(--secondary-text-color);
+        border-bottom: 2px solid transparent;
+      }
+      .menu-btn:hover {
+        color: var(--primary-text-color);
       }
 
       .tab {
@@ -863,10 +875,11 @@ class MeshtasticUiPanel extends LitElement {
   render() {
     return html`
       <div class="tabs">
-        <ha-menu-button
-          .hass=${this.hass}
-          .narrow=${this.narrow}
-        ></ha-menu-button>
+        ${this.narrow ? html`
+          <div class="menu-btn" @click=${this._toggleMenu}>
+            <ha-icon icon="mdi:menu"></ha-icon>
+          </div>
+        ` : ""}
         ${TABS.map((tab) => {
           const unread = tab === "messages"
             ? Object.values(this._unreadCounts).reduce((a, b) => a + b, 0) : 0;
