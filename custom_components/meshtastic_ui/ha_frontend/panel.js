@@ -623,17 +623,26 @@ class MeshtasticUiPanel extends LitElement {
       }
 
       .menu-btn {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
         width: 48px;
         height: 48px;
-        margin-left: -4px;
+        padding: 12px;
         margin-right: 4px;
+        box-sizing: border-box;
         cursor: pointer;
         color: var(--primary-text-color);
+        border: none;
         border-bottom: 2px solid transparent;
+        border-radius: 50%;
+        background: none;
+        outline: none;
         --mdc-icon-size: 24px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .menu-btn:active {
+        background: var(--secondary-background-color);
       }
 
       .tab {
@@ -878,9 +887,9 @@ class MeshtasticUiPanel extends LitElement {
     return html`
       <div class="tabs">
         ${this.narrow ? html`
-          <div class="menu-btn" @click=${this._toggleMenu}>
+          <button class="menu-btn" @click=${this._toggleMenu} aria-label="Sidebar toggle" title="Sidebar toggle">
             <ha-icon icon="mdi:menu"></ha-icon>
-          </div>
+          </button>
         ` : ""}
         ${TABS.map((tab) => {
           const unread = tab === "messages"
