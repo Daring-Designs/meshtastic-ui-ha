@@ -669,6 +669,8 @@ class MeshtasticUiPanel extends LitElement {
       }
 
       .content {
+        position: relative;
+        z-index: 0;
         padding: 16px 16px 0;
         height: calc(100% - 49px);
         overflow-y: auto;
