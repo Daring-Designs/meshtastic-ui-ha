@@ -18,6 +18,30 @@ function formatTime(iso) {
   }
 }
 
+function formatDateLabel(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today - 86400000);
+    const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    if (msgDay.getTime() === today.getTime()) return "Today";
+    if (msgDay.getTime() === yesterday.getTime()) return "Yesterday";
+    return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function isSameDay(iso1, iso2) {
+  if (!iso1 || !iso2) return false;
+  const a = new Date(iso1), b = new Date(iso2);
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
 function formatLastSeen(iso) {
   if (!iso) return "Unknown";
   try {
@@ -630,6 +654,27 @@ export class MeshMessagesTab extends LitElement {
         }
         .quoted-reply .quoted-sender { font-weight: 600; }
 
+        .date-separator {
+          display: flex; align-items: center; gap: 10px;
+          margin: 12px 0 8px; color: var(--secondary-text-color);
+          font-size: 11px; font-weight: 600; text-transform: uppercase;
+          letter-spacing: 0.5px; align-self: stretch;
+        }
+        .date-separator::before, .date-separator::after {
+          content: ""; flex: 1;
+          border-top: 1px solid var(--divider-color);
+        }
+
+        .hops-badge {
+          font-size: 10px; color: var(--secondary-text-color);
+          margin-left: 6px; opacity: 0.7;
+        }
+        .chat-bubble.outgoing .hops-badge { color: rgba(255,255,255,0.6); }
+
+        .chat-bubble-wrapper.unread .chat-bubble.incoming {
+          border-left: 3px solid var(--primary-color);
+        }
+
         @media (hover: none) {
           .bubble-actions { display: none !important; }
           .chat-bubble-wrapper.actions-open .bubble-actions { display: flex !important; }
@@ -656,12 +701,23 @@ export class MeshMessagesTab extends LitElement {
     ];
   }
 
+  updated(changedProps) {
+    if (changedProps.has("messages") || changedProps.has("selectedConversation")) {
+      this.updateComplete.then(() => {
+        const el = this.shadowRoot?.querySelector(".chat-messages");
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+  }
+
   render() {
     // Always show at least the default channel (0) so users can send messages
     const defaultChannels = this.channels.length ? this.channels : ["0"];
     const allConversations = [...defaultChannels, ...this.dms];
     const selected = this.selectedConversation || allConversations[0] || "0";
     const currentMessages = this.messages[selected] || [];
+    const unreadCount = this.unreadCounts?.[selected] || 0;
+    const unreadStartIdx = unreadCount > 0 ? Math.max(0, currentMessages.length - unreadCount) : -1;
 
     return html`
       <div class="messages-layout">
@@ -693,19 +749,22 @@ export class MeshMessagesTab extends LitElement {
 
         <div class="chat-area">
           <div class="chat-messages">
-            ${currentMessages.map((msg) => {
+            ${currentMessages.map((msg, i) => {
               const isOutgoing = msg.type === "sent" || msg._outgoing;
               const senderName = this._getNodeName(msg.from) || msg.from || "Unknown";
               const delivery = msg.packet_id ? this.deliveryStatuses[msg.packet_id] : null;
               const msgId = msg.message_id;
               const hasActions = msgId != null;
+              const isUnread = !isOutgoing && unreadStartIdx >= 0 && i >= unreadStartIdx;
+              const showDateSep = i === 0 || !isSameDay(currentMessages[i - 1].timestamp, msg.timestamp);
               // Look up quoted reply
               let quotedMsg = null;
               if (msg.reply_id) {
                 quotedMsg = currentMessages.find((m) => m.message_id === msg.reply_id);
               }
               return html`
-                <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"}"
+                ${showDateSep ? html`<div class="date-separator">${formatDateLabel(msg.timestamp)}</div>` : ""}
+                <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"} ${isUnread ? "unread" : ""}"
                   @touchstart=${hasActions ? (e) => this._onTouchStart(e, msgId) : null}
                   @touchend=${hasActions ? () => this._onTouchEnd() : null}
                   @touchcancel=${hasActions ? () => this._onTouchEnd() : null}
@@ -721,7 +780,7 @@ export class MeshMessagesTab extends LitElement {
                       ` : ""}
                       <div>${msg.text}</div>
                       <div class="time">
-                        ${formatTime(msg.timestamp)}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
+                        ${formatTime(msg.timestamp)}${msg.hops_away != null ? html`<span class="hops-badge">&middot; ${msg.hops_away} hop${msg.hops_away !== 1 ? "s" : ""}</span>` : ""}${delivery ? html`<span class="delivery-icon ${delivery.status}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
                       </div>
                     </div>
                     ${hasActions ? html`

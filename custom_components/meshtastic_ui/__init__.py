@@ -397,6 +397,11 @@ def _handle_text_message(
     packet_id = packet.get("id")
     reply_id = decoded.get("replyId") or decoded.get("reply_id")
 
+    # Hop count: hops_away = hop_start - hop_limit (both present when relayed).
+    hop_start = packet.get("hopStart")
+    hop_limit = packet.get("hopLimit")
+    hops_away = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+
     # Broadcast destinations: ^all or !ffffffff.
     is_broadcast = to_id in ("^all", "!ffffffff", "")
 
@@ -411,6 +416,8 @@ def _handle_text_message(
         message["message_id"] = packet_id
     if reply_id:
         message["reply_id"] = reply_id
+    if hops_away is not None:
+        message["hops_away"] = hops_away
 
     if is_broadcast:
         store.add_channel_message(channel_key, message)
