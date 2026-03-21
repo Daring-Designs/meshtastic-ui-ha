@@ -1733,6 +1733,23 @@ customElements.define("mesh-settings-bluetooth", MeshSettingsBluetooth);
 class MeshSettingsSecurity extends ConfigSectionPanel {
   get _section() { return "security"; }
 
+  async _save() {
+    // Exclude read-only PKI key fields — sending bytes back causes writeConfig to fail
+    const { public_key, private_key, admin_key, ...values } = this._draft;
+    this._saving = true;
+    this.requestUpdate();
+    const result = await this.wsCommand("meshtastic_ui/set_config", {
+      section: this._section,
+      values,
+    });
+    this._saving = false;
+    if (result?.success) {
+      this._dirty = false;
+      this.dispatchEvent(new CustomEvent("config-saved", { bubbles: true, composed: true }));
+    }
+    this.requestUpdate();
+  }
+
   static get styles() {
     return [
       settingsStyles,
