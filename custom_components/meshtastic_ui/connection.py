@@ -360,7 +360,9 @@ class MeshtasticConnection:
             # Local config sections.
             if node.localConfig:
                 result["local_config"] = MessageToDict(
-                    node.localConfig, preserving_proto_field_name=True
+                    node.localConfig,
+                    preserving_proto_field_name=True,
+                    including_default_value_fields=True,
                 )
                 _fill_enum_defaults(node.localConfig, result["local_config"])
             else:
@@ -369,7 +371,9 @@ class MeshtasticConnection:
             # Module config sections.
             if node.moduleConfig:
                 result["module_config"] = MessageToDict(
-                    node.moduleConfig, preserving_proto_field_name=True
+                    node.moduleConfig,
+                    preserving_proto_field_name=True,
+                    including_default_value_fields=True,
                 )
                 _fill_enum_defaults(node.moduleConfig, result["module_config"])
             else:

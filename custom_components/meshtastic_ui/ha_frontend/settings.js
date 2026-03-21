@@ -1321,13 +1321,13 @@ class MeshSettingsPosition extends ConfigSectionPanel {
             <mesh-toggle
               label="Smart Position Broadcast"
               description="Only broadcast position when movement is detected"
-              .checked=${d.position_broadcast_smart_enabled !== false}
+              .checked=${d.position_broadcast_smart_enabled === true}
               @change=${(e) => this._updateField("position_broadcast_smart_enabled", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
               label="GPS Enabled"
               description="Enable the onboard GPS hardware"
-              .checked=${d.gps_enabled !== false}
+              .checked=${d.gps_enabled === true}
               @change=${(e) => this._updateField("gps_enabled", e.detail.checked)}
             ></mesh-toggle>
           </div>
