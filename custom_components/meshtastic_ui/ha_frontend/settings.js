@@ -1811,8 +1811,8 @@ class MeshSettingsSecurity extends ConfigSectionPanel {
             <mesh-toggle
               label="Debug Log Enabled"
               description="Enable verbose debug logging on the device"
-              .checked=${d.debug_log_enabled === true}
-              @change=${(e) => this._updateField("debug_log_enabled", e.detail.checked)}
+              .checked=${d.debug_log_api_enabled === true}
+              @change=${(e) => this._updateField("debug_log_api_enabled", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
               label="Admin Key Required"
