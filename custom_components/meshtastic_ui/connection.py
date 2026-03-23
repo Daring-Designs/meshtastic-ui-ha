@@ -84,6 +84,24 @@ def _apply_protobuf_values(
                 )
 
 
+def _message_to_dict(proto_obj: Any, **kwargs: Any) -> dict[str, Any]:
+    """Wrap MessageToDict with protobuf version compatibility.
+
+    protobuf < 4.21 uses ``including_default_value_fields``; newer versions
+    renamed it to ``always_print_fields_with_no_presence``.
+    """
+    from google.protobuf.json_format import MessageToDict
+
+    if "including_default_value_fields" in kwargs:
+        try:
+            return MessageToDict(proto_obj, **kwargs)
+        except TypeError:
+            kwargs["always_print_fields_with_no_presence"] = kwargs.pop(
+                "including_default_value_fields"
+            )
+    return MessageToDict(proto_obj, **kwargs)
+
+
 def _fill_enum_defaults(proto_obj: Any, d: dict[str, Any]) -> None:
     """Fill in missing enum fields with their default (value-0) string name.
 
@@ -352,14 +370,12 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _read() -> dict[str, Any]:
-            from google.protobuf.json_format import MessageToDict
-
             node = iface.localNode
             result: dict[str, Any] = {}
 
             # Local config sections.
             if node.localConfig:
-                result["local_config"] = MessageToDict(
+                result["local_config"] = _message_to_dict(
                     node.localConfig,
                     preserving_proto_field_name=True,
                     including_default_value_fields=True,
@@ -370,7 +386,7 @@ class MeshtasticConnection:
 
             # Module config sections.
             if node.moduleConfig:
-                result["module_config"] = MessageToDict(
+                result["module_config"] = _message_to_dict(
                     node.moduleConfig,
                     preserving_proto_field_name=True,
                     including_default_value_fields=True,
@@ -382,7 +398,7 @@ class MeshtasticConnection:
             # Channels (radio supports indices 0-7 only).
             channels = []
             for ch in (node.channels or [])[:8]:
-                channels.append(MessageToDict(ch, preserving_proto_field_name=True))
+                channels.append(_message_to_dict(ch, preserving_proto_field_name=True))
             result["channels"] = channels
 
             # Owner info.
