@@ -1544,6 +1544,28 @@ export class MeshMapTab extends LitElement {
     this._waypointDialog = null;
     this._userLocationMarker = null;
     this._userLocationCircle = null;
+    this._tileLayer = null;
+    // Dark mode: check localStorage override, else follow HA theme.
+    const stored = localStorage.getItem("meshtastic_map_dark");
+    this._darkMap = stored != null ? stored === "true" : this._detectDarkTheme();
+  }
+
+  _detectDarkTheme() {
+    const root = document.documentElement;
+    // HA sets --primary-background-color; dark themes use dark values.
+    const bg = getComputedStyle(root).getPropertyValue("--primary-background-color").trim();
+    if (!bg) return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    // Parse to check luminance — rough check.
+    const temp = document.createElement("div");
+    temp.style.color = bg;
+    document.body.appendChild(temp);
+    const rgb = getComputedStyle(temp).color.match(/\d+/g);
+    document.body.removeChild(temp);
+    if (rgb) {
+      const lum = (0.299 * +rgb[0] + 0.587 * +rgb[1] + 0.114 * +rgb[2]) / 255;
+      return lum < 0.5;
+    }
+    return false;
   }
 
   static get styles() {
@@ -1803,6 +1825,10 @@ export class MeshMapTab extends LitElement {
           <button class="locate-btn" @click=${() => this._locateUser()} title="Find my location">
             \u25CE Locate
           </button>
+          <button class="layer-btn ${this._darkMap ? "active" : ""}"
+            @click=${() => this._toggleDarkMap()} title="Toggle dark map tiles">
+            \u263D Dark
+          </button>
         </div>
         ${nodesWithout > 0 ? html`
           <div class="map-info-badge">${nodesWithout} node${nodesWithout !== 1 ? "s" : ""} without position</div>
@@ -1938,6 +1964,28 @@ export class MeshMapTab extends LitElement {
     this._waypointDialog = null;
   }
 
+  _createTileLayer(dark) {
+    const lightUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    const darkUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+    const lightAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+    const darkAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
+    return L.tileLayer(dark ? darkUrl : lightUrl, {
+      attribution: dark ? darkAttr : lightAttr,
+      maxZoom: 19,
+      noWrap: true,
+    });
+  }
+
+  _toggleDarkMap() {
+    this._darkMap = !this._darkMap;
+    localStorage.setItem("meshtastic_map_dark", String(this._darkMap));
+    if (this._mapInstance && this._tileLayer) {
+      this._mapInstance.removeLayer(this._tileLayer);
+      this._tileLayer = this._createTileLayer(this._darkMap).addTo(this._mapInstance);
+    }
+    this.requestUpdate();
+  }
+
   _locateUser() {
     if (!this._mapInstance) return;
     this._mapInstance.locate({ setView: true, maxZoom: 16 });
@@ -2021,16 +2069,26 @@ export class MeshMapTab extends LitElement {
     const container = this.shadowRoot.querySelector("#mesh-map");
     if (!container || this._mapInstance) return;
 
+    // Restore saved position/zoom or use defaults.
+    const savedView = JSON.parse(localStorage.getItem("meshtastic_map_view") || "null");
+    const initCenter = savedView ? [savedView.lat, savedView.lng] : [20, 0];
+    const initZoom = savedView ? savedView.zoom : 3;
+
     const map = L.map(container, {
       minZoom: 3,
       maxBounds: [[-85, -180], [85, 180]],
       maxBoundsViscosity: 1.0,
-    }).setView([20, 0], 3);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-      noWrap: true,
-    }).addTo(map);
+    }).setView(initCenter, initZoom);
+
+    this._tileLayer = this._createTileLayer(this._darkMap).addTo(map);
+
+    // Persist position and zoom on every move.
+    map.on("moveend", () => {
+      const c = map.getCenter();
+      localStorage.setItem("meshtastic_map_view", JSON.stringify({
+        lat: c.lat, lng: c.lng, zoom: map.getZoom(),
+      }));
+    });
 
     this._mapInstance = map;
     this._nodeLayer = L.layerGroup().addTo(map);
