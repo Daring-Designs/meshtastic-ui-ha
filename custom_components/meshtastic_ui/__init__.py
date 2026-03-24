@@ -447,30 +447,36 @@ def _handle_text_message(
             or (msg_filter == "dm" and not is_broadcast)
         )
         if should_notify:
-            service_target = prefs.get("service", "notify.notify")
+            service_target = prefs.get(
+                "service", "persistent_notification.create"
+            )
             parts = service_target.split(".", 1)
-            notify_domain = parts[0] if len(parts) > 1 else "notify"
-            notify_service = parts[1] if len(parts) > 1 else parts[0]
+            svc_domain = parts[0] if len(parts) > 1 else "notify"
+            svc_name = parts[1] if len(parts) > 1 else parts[0]
             sender_name = store.get_nodes().get(sender_id, {}).get("name", sender_id)
 
             async def _send_notification() -> None:
                 try:
+                    service_data: dict[str, Any] = {
+                        "title": sender_name,
+                        "message": text,
+                    }
+                    # Only notify.* services accept 'data'; other domains
+                    # (e.g. persistent_notification) would reject unknown keys.
+                    if svc_domain == "notify":
+                        service_data["data"] = {
+                            "channel": channel_index,
+                            "from": sender_id,
+                            "timestamp": timestamp,
+                        }
                     await hass.services.async_call(
-                        notify_domain,
-                        notify_service,
-                        {
-                            "title": sender_name,
-                            "message": text,
-                            "data": {
-                                "channel": channel_index,
-                                "from": sender_id,
-                                "timestamp": timestamp,
-                            },
-                        },
+                        svc_domain, svc_name, service_data
                     )
-                except Exception:  # noqa: BLE001
+                except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
-                        "Failed to send notification via %s", service_target
+                        "Failed to send notification via %s: %s",
+                        service_target,
+                        err,
                     )
 
             hass.async_create_task(_send_notification())

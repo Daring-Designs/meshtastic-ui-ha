@@ -96,7 +96,7 @@ class MeshtasticUiPanel extends LitElement {
     this._tracerouteTimeoutId = null;
     this._channelNames = {};
     this._unreadCounts = JSON.parse(localStorage.getItem("meshtastic_unread") || "{}");
-    this._notificationPrefs = { enabled: false, service: "notify.notify", filter: "all" };
+    this._notificationPrefs = { enabled: false, service: "persistent_notification.create", filter: "all" };
     this._showNotificationModal = false;
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
@@ -1265,8 +1265,10 @@ class MeshtasticUiPanel extends LitElement {
             </div>
             <div class="notification-field">
               <label>Notify Service</label>
-              <select .value=${p.service || "notify.notify"}
+              <select .value=${p.service || "persistent_notification.create"}
                 @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, service: e.target.value }; }}>
+                <option value="persistent_notification.create"
+                  ?selected=${p.service === "persistent_notification.create"}>persistent_notification.create</option>
                 ${Object.keys(this.hass?.services?.notify || {}).map((svc) => {
                   const val = `notify.${svc}`;
                   return html`<option value=${val} ?selected=${p.service === val}>${val}</option>`;

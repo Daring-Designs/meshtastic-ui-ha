@@ -57,7 +57,7 @@ class MeshtasticUiStore:
         self._traceroutes: dict[str, dict[str, Any]] = {}  # node_id -> last traceroute
         self._notification_prefs: dict[str, Any] = {
             "enabled": False,
-            "service": "notify.notify",
+            "service": "persistent_notification.create",
             "filter": "all",
         }
 

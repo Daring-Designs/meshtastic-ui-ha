@@ -855,7 +855,7 @@ async def ws_get_notification_prefs(
     {
         vol.Required("type"): f"{WS_PREFIX}/set_notification_prefs",
         vol.Optional("enabled"): bool,
-        vol.Optional("service"): vol.Match(r"^notify\.\w+$"),
+        vol.Optional("service"): vol.Match(r"^\w+\.\w+$"),
         vol.Optional("filter"): vol.In({"all", "channel", "dm"}),
     }
 )
