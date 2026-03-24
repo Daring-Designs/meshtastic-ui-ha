@@ -511,6 +511,7 @@ export class MeshMessagesTab extends LitElement {
         }
         .chat-bubble .time {
           font-size: 10px; color: var(--secondary-text-color); margin-top: 2px;
+          display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
         }
         .chat-input-row {
           display: flex; gap: 8px; padding-top: 12px;
