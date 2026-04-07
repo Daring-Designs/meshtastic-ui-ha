@@ -517,6 +517,9 @@ async def ws_get_config(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Return full radio config (local_config, module_config, channels, owner, metadata)."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
     conn = _get_connection(hass)
     try:
         config = await conn.async_get_config()
