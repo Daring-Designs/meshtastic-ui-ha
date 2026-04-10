@@ -452,8 +452,31 @@ class MeshtasticConnection:
             if config_obj is None:
                 raise ValueError(f"Config section '{section}' not found on node")
 
-            _apply_protobuf_values(config_obj, values, section)
-            node.writeConfig(section)
+            # Fixed-position lat/lng/altitude are not part of PositionConfig —
+            # they live on the node's Position and are set via a separate
+            # admin message (setFixedPosition / removeFixedPosition).
+            remaining = dict(values)
+            fixed_position = None
+            fixed_lat = fixed_lng = fixed_altitude = 0
+            if section == "position":
+                fixed_lat = remaining.pop("fixed_lat", 0) or 0
+                fixed_lng = remaining.pop("fixed_lng", 0) or 0
+                fixed_altitude = remaining.pop("fixed_altitude", 0) or 0
+                if "fixed_position" in remaining:
+                    fixed_position = remaining.pop("fixed_position")
+
+            if remaining:
+                _apply_protobuf_values(config_obj, remaining, section)
+                node.writeConfig(section)
+
+            if fixed_position is True:
+                node.setFixedPosition(
+                    float(fixed_lat),
+                    float(fixed_lng),
+                    int(fixed_altitude),
+                )
+            elif fixed_position is False:
+                node.removeFixedPosition()
 
         await self._hass.async_add_executor_job(_write)
 
