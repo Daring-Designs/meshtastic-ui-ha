@@ -41,6 +41,10 @@
       "bluetooth_confirm": {
         "title": "Set up Meshtastic radio",
         "description": "A Meshtastic radio was discovered via Bluetooth:\n\n**{name}**\n`{address}`\n\nDo you want to set it up?"
+      },
+      "zeroconf_confirm": {
+        "title": "Set up Meshtastic radio",
+        "description": "A Meshtastic radio was discovered on the network:\n\n**{name}**\n`{host}:{port}`\n\nDo you want to set it up?"
       }
     },
     "error": {

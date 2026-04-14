@@ -11,6 +11,7 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
+from homeassistant.components.zeroconf import ZeroconfServiceInfo
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
@@ -56,6 +57,8 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._connection_type: str | None = None
         self._discovered_address: str | None = None
         self._discovered_name: str | None = None
+        self._discovered_host: str | None = None
+        self._discovered_port: int | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
@@ -122,6 +125,64 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
                 "name": self._discovered_name,
                 "address": self._discovered_address,
             },
+        )
+
+    async def async_step_zeroconf(
+        self, discovery_info: ZeroconfServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle mDNS/zeroconf discovery of a Meshtastic radio."""
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
+
+        host = discovery_info.host
+        if discovery_info.type == "_meshtastic._tcp.local.":
+            port = discovery_info.port or DEFAULT_TCP_PORT
+        else:
+            port = DEFAULT_TCP_PORT
+
+        self._discovered_host = host
+        self._discovered_port = port
+        self._discovered_name = (
+            discovery_info.name.split(".")[0] if discovery_info.name else host
+        )
+
+        self.context["title_placeholders"] = {
+            "name": self._discovered_name,
+            "address": f"{host}:{port}",
+        }
+
+        return await self.async_step_zeroconf_confirm()
+
+    async def async_step_zeroconf_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm zeroconf discovery."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            error = await self._async_validate_tcp(
+                self._discovered_host, self._discovered_port
+            )
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_create_entry(
+                    title=f"Meshtastic ({self._discovered_host})",
+                    data={
+                        CONF_CONNECTION_TYPE: "tcp",
+                        CONF_TCP_HOSTNAME: self._discovered_host,
+                        CONF_TCP_PORT: self._discovered_port,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="zeroconf_confirm",
+            description_placeholders={
+                "name": self._discovered_name,
+                "host": self._discovered_host,
+                "port": str(self._discovered_port),
+            },
+            errors=errors,
         )
 
     async def async_step_tcp(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
