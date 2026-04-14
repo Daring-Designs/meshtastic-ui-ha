@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
     CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
@@ -27,6 +28,23 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 MANUAL_ENTRY = "manual"
+
+
+def _resolve_ble_name(info: BluetoothServiceInfoBleak) -> str:
+    """Pick a human-readable name for a discovered BLE device.
+
+    bleak reports the address as `name` when no local_name is advertised — fall
+    back through the advertisement data before giving up on a generic label.
+    """
+    candidates = [
+        info.name,
+        getattr(info, "advertisement", None) and info.advertisement.local_name,
+    ]
+    address_upper = info.address.upper()
+    for candidate in candidates:
+        if candidate and candidate.upper() != address_upper:
+            return candidate
+    return "Meshtastic Radio"
 
 
 class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -77,10 +95,11 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._discovered_address = discovery_info.address
-        self._discovered_name = discovery_info.name or "Meshtastic"
+        self._discovered_name = _resolve_ble_name(discovery_info)
 
         self.context["title_placeholders"] = {
             "name": self._discovered_name,
+            "address": self._discovered_address,
         }
 
         return await self.async_step_bluetooth_confirm()
@@ -89,21 +108,36 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Confirm Bluetooth discovery."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(
-                title=f"Meshtastic (BLE {self._discovered_name})",
-                data={
+            pin = (user_input.get(CONF_BLE_PIN) or "").strip()
+            if pin and not pin.isdigit():
+                errors[CONF_BLE_PIN] = "invalid_pin"
+            else:
+                data: dict[str, Any] = {
                     CONF_CONNECTION_TYPE: "ble",
                     CONF_BLE_ADDRESS: self._discovered_address,
-                },
-            )
+                }
+                if pin:
+                    data[CONF_BLE_PIN] = pin
+                return self.async_create_entry(
+                    title=f"Meshtastic (BLE {self._discovered_name})",
+                    data=data,
+                )
 
         return self.async_show_form(
             step_id="bluetooth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_BLE_PIN, default=""): str,
+                }
+            ),
             description_placeholders={
                 "name": self._discovered_name,
                 "address": self._discovered_address,
             },
+            errors=errors,
         )
 
     async def async_step_tcp(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -194,14 +228,24 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
                     },
                 )
 
-        # Build picker from discovered Meshtastic BLE devices.
-        devices: dict[str, str] = {}
+        # List every nearby BLE device. Some Meshtastic hardware (e.g. nRF52
+        # Wio Tracker) omits the service UUID from its primary advert, so
+        # filtering on the UUID alone hides them. We validate the device is
+        # actually Meshtastic on connect by inspecting the GATT service table.
+        known: dict[str, str] = {}
+        other: dict[str, str] = {}
         for info in async_discovered_service_info(self.hass):
-            if MESHTASTIC_BLE_SERVICE_UUID in [
+            is_meshtastic = MESHTASTIC_BLE_SERVICE_UUID in [
                 str(u) for u in info.service_uuids
-            ]:
-                label = f"{info.name} ({info.address})" if info.name else info.address
-                devices[info.address] = label
+            ]
+            display_name = info.name or "Unknown"
+            label = f"{display_name} ({info.address})"
+            if is_meshtastic:
+                known[info.address] = f"✓ {label}"
+            else:
+                other[info.address] = label
+
+        devices = {**known, **other}
 
         if devices:
             devices[MANUAL_ENTRY] = "Enter address manually..."
@@ -272,14 +316,42 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         return None
 
     async def _async_validate_ble(self, address: str) -> str | None:
-        """Test a BLE connection. Returns error key or None on success."""
+        """Validate a BLE device through HA's bluetooth stack.
+
+        Connects, inspects the GATT service table for the Meshtastic service
+        UUID, and disconnects. Avoids relying on advertisement data (which
+        some hardware truncates) and works through ESPHome bluetooth proxies.
+        """
+        from bleak import BleakClient
+        from bleak_retry_connector import establish_connection
+        from homeassistant.components.bluetooth import (
+            async_ble_device_from_address,
+        )
+
+        ble_device = async_ble_device_from_address(
+            self.hass, address, connectable=True
+        )
+        if ble_device is None:
+            return "ble_unreachable"
+
+        client: BleakClient | None = None
         try:
-            await self.hass.async_add_executor_job(
-                self._test_ble_connection, address
-            )
-        except Exception as err:
-            _LOGGER.debug("BLE validation failed: %s", err)
+            client = await establish_connection(BleakClient, ble_device, address)
+            uuids = {
+                str(char_service.uuid).lower()
+                for char_service in client.services
+            }
+            if MESHTASTIC_BLE_SERVICE_UUID.lower() not in uuids:
+                return "not_meshtastic"
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("BLE validation failed for %s: %s", address, err)
             return "cannot_connect"
+        finally:
+            if client is not None and client.is_connected:
+                try:
+                    await client.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
         return None
 
     @staticmethod
@@ -296,14 +368,6 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         from meshtastic.serial_interface import SerialInterface
 
         iface = SerialInterface(devPath=dev_path)
-        iface.close()
-
-    @staticmethod
-    def _test_ble_connection(address: str) -> None:
-        """Try connecting via BLE (runs in executor)."""
-        from meshtastic.ble_interface import BLEInterface
-
-        iface = BLEInterface(address=address)
         iface.close()
 
     async def _async_detect_serial_ports(self) -> str:

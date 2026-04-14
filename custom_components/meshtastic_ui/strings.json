@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name} ({address})",
     "step": {
       "user": {
         "title": "Meshtastic UI",
@@ -38,12 +39,21 @@
         }
       },
       "bluetooth_confirm": {
-        "title": "Meshtastic Radio Discovered",
-        "description": "A Meshtastic radio was discovered via Bluetooth: **{name}** (`{address}`). Do you want to set it up?"
+        "title": "Set up Meshtastic radio",
+        "description": "A Meshtastic radio was discovered via Bluetooth:\n\n**{name}**\n`{address}`\n\nIf your radio's Bluetooth pairing mode is **Fixed PIN**, enter the 6-digit PIN below. For **Random PIN** mode, leave the field blank — your operating system will prompt for the PIN during pairing. For **No PIN** mode, leave it blank.",
+        "data": {
+          "ble_pin": "Pairing PIN (optional)"
+        },
+        "data_description": {
+          "ble_pin": "6-digit PIN configured on the radio (Bluetooth → Fixed PIN). Leave blank for OS-level pairing."
+        }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on."
+      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on.",
+      "invalid_pin": "PIN must be numeric (typically 6 digits).",
+      "ble_unreachable": "Home Assistant's Bluetooth stack can't reach that device. Ensure a Bluetooth adapter or proxy is in range.",
+      "not_meshtastic": "Connected, but that device doesn't expose the Meshtastic BLE service. Double-check the address."
     },
     "abort": {
       "already_configured": "Meshtastic UI is already configured."

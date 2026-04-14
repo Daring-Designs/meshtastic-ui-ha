@@ -50,6 +50,7 @@ CONF_TCP_HOSTNAME = "tcp_hostname"
 CONF_TCP_PORT = "tcp_port"
 CONF_SERIAL_DEV_PATH = "serial_dev_path"
 CONF_BLE_ADDRESS = "ble_address"
+CONF_BLE_PIN = "ble_pin"
 DEFAULT_TCP_PORT = 4403
 
 # Meshtastic BLE service UUID (advertised by all Meshtastic radios)
