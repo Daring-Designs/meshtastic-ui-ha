@@ -15,7 +15,6 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
     CONF_BLE_ADDRESS,
-    CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
@@ -108,36 +107,21 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Confirm Bluetooth discovery."""
-        errors: dict[str, str] = {}
-
         if user_input is not None:
-            pin = (user_input.get(CONF_BLE_PIN) or "").strip()
-            if pin and not pin.isdigit():
-                errors[CONF_BLE_PIN] = "invalid_pin"
-            else:
-                data: dict[str, Any] = {
+            return self.async_create_entry(
+                title=f"Meshtastic (BLE {self._discovered_name})",
+                data={
                     CONF_CONNECTION_TYPE: "ble",
                     CONF_BLE_ADDRESS: self._discovered_address,
-                }
-                if pin:
-                    data[CONF_BLE_PIN] = pin
-                return self.async_create_entry(
-                    title=f"Meshtastic (BLE {self._discovered_name})",
-                    data=data,
-                )
+                },
+            )
 
         return self.async_show_form(
             step_id="bluetooth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(CONF_BLE_PIN, default=""): str,
-                }
-            ),
             description_placeholders={
                 "name": self._discovered_name,
                 "address": self._discovered_address,
             },
-            errors=errors,
         )
 
     async def async_step_tcp(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

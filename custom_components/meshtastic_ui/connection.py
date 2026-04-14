@@ -157,7 +157,6 @@ class MeshtasticConnection:
         port: int = 4403,
         serial_path: str | None = None,
         ble_address: str | None = None,
-        ble_pin: str | None = None,
     ) -> None:
         """Initialize the connection manager."""
         self._hass = hass
@@ -166,7 +165,6 @@ class MeshtasticConnection:
         self._port = port
         self._serial_path = serial_path
         self._ble_address = ble_address
-        self._ble_pin = ble_pin
 
         self._interface: Any | None = None
         self._state = ConnectionState.DISCONNECTED
@@ -652,9 +650,7 @@ class MeshtasticConnection:
             from .ha_ble import create_ha_ble_interface
 
             return create_ha_ble_interface(
-                hass=self._hass,
-                address=self._ble_address,
-                pin=self._ble_pin,
+                hass=self._hass, address=self._ble_address
             )
 
         raise ValueError(f"Unknown connection type: {self._connection_type}")

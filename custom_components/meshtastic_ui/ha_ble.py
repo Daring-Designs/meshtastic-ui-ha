@@ -40,12 +40,10 @@ class HaBLEClient:
         hass: HomeAssistant,
         address: str,
         disconnected_callback: Any = None,
-        pin: str | None = None,
     ) -> None:
         self._hass = hass
         self._address = address
         self._disconnected_callback = disconnected_callback
-        self._pin = pin or None
         self._client: Any | None = None  # BleakClient
         self._lock = threading.Lock()
 
@@ -97,27 +95,6 @@ class HaBLEClient:
             self._address,
             disconnected_callback=_on_disconnect,
         )
-
-        if self._pin:
-            try:
-                await self._client.pair()
-                _LOGGER.debug(
-                    "HaBLEClient: pair() succeeded for %s (pin configured)",
-                    self._address,
-                )
-            except TypeError:
-                # Backends that don't accept passkey kwargs — OS agent handles PIN.
-                _LOGGER.debug(
-                    "HaBLEClient: bleak backend doesn't accept passkey; relying on OS agent"
-                )
-            except Exception as err:  # noqa: BLE001
-                # Pairing may already exist, or the OS agent may handle it out of band.
-                _LOGGER.debug(
-                    "HaBLEClient: pair() on %s returned %s — continuing",
-                    self._address,
-                    err,
-                )
-
         _LOGGER.info("HaBLEClient: connected to %s via HA Bluetooth", self._address)
 
     def disconnect(self) -> None:
@@ -213,7 +190,6 @@ def create_ha_ble_interface(
     address: str,
     noProto: bool = False,
     noNodes: bool = False,
-    pin: str | None = None,
 ) -> Any:
     """Create a meshtastic BLEInterface that uses HA's Bluetooth stack.
 
@@ -236,7 +212,6 @@ def create_ha_ble_interface(
                 hass=hass,
                 address=client_address or address,
                 disconnected_callback=kwargs.get("disconnected_callback"),
-                pin=pin,
             )
 
     def _patched_find_device(self_iface: Any, addr: str | None = None) -> Any:
