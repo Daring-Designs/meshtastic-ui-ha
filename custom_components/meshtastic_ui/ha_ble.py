@@ -215,18 +215,35 @@ def create_ha_ble_interface(
             )
 
     def _patched_find_device(self_iface: Any, addr: str | None = None) -> Any:
-        """Skip BLE scanning — return a synthetic BLEDevice for the known address.
+        """Resolve a BLEDevice through HA's bluetooth stack instead of scanning.
 
-        HA already discovered the device, so re-scanning is unnecessary and
-        would fail anyway because meshtastic's scan uses raw Bleak.
+        The default meshtastic scan uses raw Bleak and can't see devices that
+        are only reachable through ESPHome proxies. Grabbing the BLEDevice
+        from HA's registry also gives us the real backend ``details`` dict
+        required by modern Bleak releases.
         """
-        from bleak import BLEDevice
+        from homeassistant.components.bluetooth import (
+            async_ble_device_from_address,
+        )
 
         target = addr or address
+
+        async def _resolve() -> Any:
+            return async_ble_device_from_address(hass, target, connectable=True)
+
+        future = asyncio.run_coroutine_threadsafe(_resolve(), hass.loop)
+        device = future.result(timeout=_ASYNC_TIMEOUT)
+        if device is None:
+            raise ConnectionError(
+                f"BLE device {target} not found in HA Bluetooth. "
+                "Ensure a Bluetooth adapter or proxy can reach the device."
+            )
         _LOGGER.debug(
-            "HaBLEInterface: skipping scan, using known address %s", target
+            "HaBLEInterface: resolved %s via HA (source: %s)",
+            target,
+            getattr(device, "details", {}).get("source", "local"),
         )
-        return BLEDevice(address=target, name="Meshtastic")
+        return device
 
     # Patch, construct, restore.
     ble_mod.BLEClient = _PatchedBLEClient
