@@ -62,8 +62,8 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
-        await self.async_set_unique_id(DOMAIN)
-        self._abort_if_unique_id_configured()
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
 
         if user_input is not None:
             self._connection_type = user_input[CONF_CONNECTION_TYPE]
@@ -93,7 +93,9 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> ConfigFlowResult:
         """Handle Bluetooth discovery of a Meshtastic device."""
-        await self.async_set_unique_id(DOMAIN)
+        # Per-device unique id so multiple in-flight discovery flows coexist
+        # (BLE + zeroconf at the same time, or two BLE radios in range).
+        await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
         self._discovered_address = discovery_info.address
@@ -111,6 +113,8 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Confirm Bluetooth discovery."""
         if user_input is not None:
+            if self._async_current_entries():
+                return self.async_abort(reason="already_configured")
             return self.async_create_entry(
                 title=f"Meshtastic (BLE {self._discovered_name})",
                 data={
@@ -131,10 +135,10 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
         """Handle mDNS/zeroconf discovery of a Meshtastic radio."""
-        await self.async_set_unique_id(DOMAIN)
-        self._abort_if_unique_id_configured()
-
         host = discovery_info.host
+        # Per-device unique id so multiple in-flight discovery flows coexist.
+        await self.async_set_unique_id(f"tcp:{host}")
+        self._abort_if_unique_id_configured()
         if discovery_info.type == "_meshtastic._tcp.local.":
             port = discovery_info.port or DEFAULT_TCP_PORT
         else:
@@ -160,6 +164,8 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            if self._async_current_entries():
+                return self.async_abort(reason="already_configured")
             error = await self._async_validate_tcp(
                 self._discovered_host, self._discovered_port
             )
