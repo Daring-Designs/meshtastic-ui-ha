@@ -4,10 +4,6 @@
   "bluetooth": [
     { "service_uuid": "6ba1b218-15a8-461f-9fa8-5dcae273eafd", "connectable": true }
   ],
-  "zeroconf": [
-    "_meshtastic._tcp.local.",
-    { "type": "_http._tcp.local.", "name": "meshtastic*" }
-  ],
   "codeowners": ["@Daring-Designs"],
   "config_flow": true,
   "dependencies": ["websocket_api", "http", "frontend", "bluetooth_adapters"],
@@ -16,5 +12,9 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Daring-Designs/meshtastic-ui-ha/issues",
   "requirements": ["meshtastic>=2.5.0", "bleak-retry-connector>=3.4.0"],
-  "version": "1.0.5"
+  "version": "1.0.5",
+  "zeroconf": [
+    "_meshtastic._tcp.local.",
+    { "type": "_http._tcp.local.", "name": "meshtastic*" }
+  ]
 }
