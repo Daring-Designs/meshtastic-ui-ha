@@ -5,3 +5,4 @@ node_modules
 .venv/
 .coverage
 *.egg-info/
+CLAUDE.local.md
