@@ -75,11 +75,8 @@ Commands are registered in `websocket_api.py` with prefix `meshtastic_ui/`. Key 
 - `subscribe_*` — real-time event streams (messages, nodes, delivery, waypoints, traceroutes)
 - `get_radio_config` / `set_radio_config` — read/write radio configuration sections
 
-## Git Conventions
-
-- Author: `Daring Designs <contact@daring-designs.com>` — use `--author` flag on every commit
+## Git
 - Remote: `git@github.com:Daring-Designs/meshtastic-ui-ha.git`
-- Branch: `main`
 
 ## Releases
 
