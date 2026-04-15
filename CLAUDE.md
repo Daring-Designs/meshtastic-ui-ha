@@ -78,6 +78,7 @@ Commands are registered in `websocket_api.py` with prefix `meshtastic_ui/`. Key 
 ## Git Conventions
 
 - Author: `Daring Designs <contact@daring-designs.com>` — use `--author` flag on every commit
+- **Do NOT add `Co-Authored-By: Claude` trailers** — these inflate the GitHub contributor graph with an unwanted "claude" account. Commit messages should end at the description, no co-author line.
 - Remote: `git@github.com:Daring-Designs/meshtastic-ui-ha.git`
 - Branch: `main`
 
