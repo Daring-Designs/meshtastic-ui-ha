@@ -748,12 +748,32 @@ class MeshtasticConnection:
                 self._async_reconnect_loop()
             )
 
-    async def _async_reconnect_loop(self) -> None:
+    async def async_force_reconnect(self) -> None:
+        """Cancel any pending backoff and attempt to reconnect immediately."""
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+
+        if self._interface is not None:
+            old = self._interface
+            self._interface = None
+            try:
+                await self._hass.async_add_executor_job(old.close)
+            except Exception:  # noqa: BLE001
+                pass
+
+        self._set_state(ConnectionState.RECONNECTING)
+        self._reconnect_task = asyncio.ensure_future(
+            self._async_reconnect_loop(initial_delay=0)
+        )
+
+    async def _async_reconnect_loop(self, initial_delay: int = MIN_RECONNECT_DELAY) -> None:
         """Attempt to reconnect with exponential backoff."""
-        delay = MIN_RECONNECT_DELAY
+        delay = initial_delay
         while self._state == ConnectionState.RECONNECTING:
-            _LOGGER.debug("Reconnecting in %d seconds...", delay)
-            await asyncio.sleep(delay)
+            if delay > 0:
+                _LOGGER.debug("Reconnecting in %d seconds...", delay)
+                await asyncio.sleep(delay)
             if self._state != ConnectionState.RECONNECTING:
                 return
 

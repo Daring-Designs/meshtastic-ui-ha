@@ -916,9 +916,9 @@ class MeshtasticUiPanel extends LitElement {
         </div>
       </div>
       ${this._showReconnectBanner ? html`
-        <div class="reconnect-banner" @click=${() => location.reload()}>
+        <div class="reconnect-banner" @click=${() => this.hass.callWS({ type: "meshtastic_ui/reconnect" }).catch(() => {})}>
           <ha-icon icon="mdi:connection"></ha-icon>
-          Connection lost — click to refresh
+          Connection lost — click to reconnect
         </div>
       ` : ""}
       <div class="content">
