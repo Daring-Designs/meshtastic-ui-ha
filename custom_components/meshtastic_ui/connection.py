@@ -752,6 +752,12 @@ class MeshtasticConnection:
         """Cancel any pending backoff and attempt to reconnect immediately."""
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
+            # Wait for the task to actually finish so it can't race with us
+            # mid-`_create_interface` and stomp on `self._interface`.
+            try:
+                await self._reconnect_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
             self._reconnect_task = None
 
         if self._interface is not None:
