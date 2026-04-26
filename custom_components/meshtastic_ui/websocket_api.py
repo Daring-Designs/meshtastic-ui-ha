@@ -49,6 +49,7 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_connection_status)
     async_register_command(hass, ws_subscribe_nodes)
     async_register_command(hass, ws_subscribe_delivery)
+    async_register_command(hass, ws_reconnect)
     async_register_command(hass, ws_get_config)
     async_register_command(hass, ws_set_config)
     async_register_command(hass, ws_get_channels)
@@ -505,6 +506,24 @@ async def ws_connection_status(
             "connection_type": str(conn.connection_type),
         },
     )
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/reconnect",
+    }
+)
+@async_response
+async def ws_reconnect(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Force an immediate reconnect to the radio."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
+    conn = _get_connection(hass)
+    await conn.async_force_reconnect()
+    connection.send_result(msg["id"], {"success": True})
 
 
 @websocket_command(
