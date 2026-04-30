@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 
 MIN_RECONNECT_DELAY = 5
 MAX_RECONNECT_DELAY = 300  # 5 minutes
+
+WATCHDOG_INTERVAL = 60    # seconds between watchdog checks
+WATCHDOG_THRESHOLD = 300  # seconds of inactivity before assuming a dead connection
 
 
 def _apply_protobuf_values(
@@ -169,6 +173,8 @@ class MeshtasticConnection:
         self._interface: Any | None = None
         self._state = ConnectionState.DISCONNECTED
         self._reconnect_task: asyncio.Task | None = None
+        self._watchdog_task: asyncio.Task | None = None
+        self._last_activity_time: float = 0.0
 
         self._message_callbacks: list[Callable] = []
         self._node_update_callbacks: list[Callable] = []
@@ -267,6 +273,10 @@ class MeshtasticConnection:
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             self._reconnect_task = None
+
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
 
         self._teardown_pubsub_listeners()
 
@@ -676,6 +686,7 @@ class MeshtasticConnection:
         def _on_receive(packet: dict, interface: Any) -> None:
             if interface is not self._interface:
                 return
+            self._last_activity_time = time.monotonic()
             _LOGGER.debug(
                 "Received packet portnum=%s from=%s",
                 packet.get("decoded", {}).get("portnum", "?"),
@@ -702,6 +713,7 @@ class MeshtasticConnection:
         def _on_node_updated(node: dict, interface: Any = None) -> None:
             if interface is not None and interface is not self._interface:
                 return
+            self._last_activity_time = time.monotonic()
             self._hass.loop.call_soon_threadsafe(
                 self._async_dispatch_node_update, node
             )
@@ -806,8 +818,57 @@ class MeshtasticConnection:
         old_state = self._state
         self._state = new_state
         if old_state != new_state:
+            if new_state == ConnectionState.CONNECTED:
+                self._last_activity_time = time.monotonic()
+                if self._watchdog_task is None or self._watchdog_task.done():
+                    self._watchdog_task = asyncio.ensure_future(
+                        self._async_watchdog_loop()
+                    )
+            elif old_state == ConnectionState.CONNECTED:
+                if self._watchdog_task is not None:
+                    self._watchdog_task.cancel()
+                    self._watchdog_task = None
             for cb in self._connection_change_callbacks:
                 try:
                     cb(new_state, old_state)
                 except Exception:  # noqa: BLE001
                     _LOGGER.exception("Error in connection change callback")
+
+    async def _async_watchdog_loop(self) -> None:
+        """Periodically verify the radio connection is still alive."""
+        while True:
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+            if self._state != ConnectionState.CONNECTED:
+                return
+
+            # Check meshtastic's internal connected flag first — fast, no I/O.
+            alive = await self._hass.async_add_executor_job(self._check_alive)
+            if not alive:
+                _LOGGER.warning(
+                    "Watchdog: radio interface reports disconnected, forcing reconnect"
+                )
+                await self.async_force_reconnect()
+                return
+
+            # Also check for prolonged inactivity — catches hung TCP sockets where
+            # the meshtastic library hasn't detected the drop yet.
+            elapsed = time.monotonic() - self._last_activity_time
+            if elapsed > WATCHDOG_THRESHOLD:
+                _LOGGER.warning(
+                    "Watchdog: no radio traffic for %.0fs, forcing reconnect", elapsed
+                )
+                await self.async_force_reconnect()
+                return
+
+    def _check_alive(self) -> bool:
+        """Check if the meshtastic interface is still connected (runs in executor)."""
+        try:
+            iface = self._interface
+            if iface is None:
+                return False
+            if hasattr(iface, "_isConnected") and not iface._isConnected:
+                return False
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
