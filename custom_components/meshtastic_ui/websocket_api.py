@@ -510,24 +510,6 @@ async def ws_connection_status(
 
 @websocket_command(
     {
-        vol.Required("type"): f"{WS_PREFIX}/reconnect",
-    }
-)
-@async_response
-async def ws_reconnect(
-    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Force an immediate reconnect to the radio."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin access required")
-        return
-    conn = _get_connection(hass)
-    await conn.async_force_reconnect()
-    connection.send_result(msg["id"], {"success": True})
-
-
-@websocket_command(
-    {
         vol.Required("type"): f"{WS_PREFIX}/get_config",
     }
 )
@@ -922,6 +904,30 @@ def _downsample(values: list[float], factor: int, is_counter: bool) -> list[floa
             out.append(sum(chunk) / len(chunk))
     return out
 
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/reconnect",
+    }
+)
+@async_response
+async def ws_reconnect(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Force a reconnect to the radio regardless of current state.
+
+    Useful when the connection appears stuck (state shows 'connected' but
+    the radio is unresponsive) without requiring a full HA restart.
+    """
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
+    conn = _get_connection(hass)
+    try:
+        await conn.async_force_reconnect()
+        connection.send_result(msg["id"], {"success": True})
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Force reconnect failed")
+        connection.send_error(msg["id"], "reconnect_failed", "Operation failed")
 
 @websocket_command(
     {

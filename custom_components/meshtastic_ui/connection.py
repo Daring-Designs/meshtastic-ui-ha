@@ -15,9 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 
 MIN_RECONNECT_DELAY = 5
 MAX_RECONNECT_DELAY = 300  # 5 minutes
-
-WATCHDOG_INTERVAL = 60    # seconds between watchdog checks
-WATCHDOG_THRESHOLD = 300  # seconds of inactivity before assuming a dead connection
+WATCHDOG_INTERVAL = 60    # seconds between liveness checks
+WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
+WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
 
 
 def _apply_protobuf_values(
@@ -254,6 +254,7 @@ class MeshtasticConnection:
             )
             self._setup_pubsub_listeners()
             self._set_state(ConnectionState.CONNECTED)
+            self._start_watchdog()
             _LOGGER.debug(
                 "Connected to Meshtastic radio via %s", self._connection_type
             )
@@ -270,6 +271,7 @@ class MeshtasticConnection:
 
     async def async_disconnect(self) -> None:
         """Disconnect from the radio and stop reconnection attempts."""
+        self._stop_watchdog()
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             self._reconnect_task = None
@@ -289,6 +291,37 @@ class MeshtasticConnection:
                 pass
 
         self._set_state(ConnectionState.DISCONNECTED)
+
+    async def async_force_reconnect(self) -> None:
+        """Force a full disconnect and reconnect regardless of current state.
+
+        Unlike the automatic reconnect loop (which only triggers on a
+        connection.lost pubsub event), this can be called at any time —
+        including when the state is stuck at CONNECTED but the radio is
+        silently unresponsive.
+        """
+        _LOGGER.info("Force reconnect requested by user")
+
+        self._stop_watchdog()
+
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+
+        self._teardown_pubsub_listeners()
+
+        if self._interface is not None:
+            old = self._interface
+            self._interface = None
+            try:
+                await self._hass.async_add_executor_job(old.close)
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Bypass the DISCONNECTED guard in _async_handle_disconnected —
+        # always start a fresh reconnect loop, skipping the initial backoff delay.
+        self._set_state(ConnectionState.RECONNECTING)
+        self._reconnect_task = asyncio.ensure_future(self._async_reconnect_loop(initial_delay=0))
 
     async def async_send_text(
         self,
@@ -644,6 +677,78 @@ class MeshtasticConnection:
 
         await self._hass.async_add_executor_job(_execute)
 
+    def _start_watchdog(self) -> None:
+        """Start the connection watchdog task."""
+        self._stop_watchdog()
+        self._watchdog_task = asyncio.ensure_future(self._async_watchdog_loop())
+
+    def _stop_watchdog(self) -> None:
+        """Cancel the connection watchdog task."""
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+
+    async def _async_watchdog_loop(self) -> None:
+        """Periodically probe the radio to detect silent TCP hangs.
+
+        The meshtastic TCP interface can go silently dead — the socket stays
+        open but stops receiving data, so no connection.lost pubsub event
+        fires and the reconnect loop never starts.
+
+        Two-stage detection:
+        1. Fast check: meshtastic's internal _isConnected flag — catches clean drops.
+        2. Inactivity probe: if no packets for WATCHDOG_THRESHOLD seconds, do a
+           deeper interface probe with a WATCHDOG_TIMEOUT deadline — catches hung sockets.
+        """
+        await asyncio.sleep(WATCHDOG_INTERVAL)
+        while self._state == ConnectionState.CONNECTED:
+            # Stage 1: fast check, no I/O.
+            if not await self._hass.async_add_executor_job(self._check_alive):
+                _LOGGER.warning("Watchdog: interface reports disconnected, triggering reconnect")
+                self._hass.loop.call_soon_threadsafe(self._async_handle_disconnected)
+                return
+
+            # Stage 2: deeper probe only when traffic has been absent too long.
+            elapsed = time.monotonic() - self._last_activity_time
+            if elapsed > WATCHDOG_THRESHOLD:
+                _LOGGER.debug("Watchdog: no traffic for %.0fs, probing interface", elapsed)
+                try:
+                    alive = await asyncio.wait_for(
+                        self._hass.async_add_executor_job(self._probe_interface),
+                        timeout=WATCHDOG_TIMEOUT,
+                    )
+                    if not alive:
+                        raise RuntimeError("probe returned falsy")
+                    # Probe succeeded — reset timer so we don't probe every cycle.
+                    self._last_activity_time = time.monotonic()
+                    _LOGGER.debug("Watchdog: probe OK, radio is alive")
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Watchdog detected dead connection (%s), triggering reconnect", err
+                    )
+                    self._hass.loop.call_soon_threadsafe(self._async_handle_disconnected)
+                    return
+            else:
+                _LOGGER.debug("Watchdog: radio is alive")
+
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+
+    def _probe_interface(self) -> bool:
+        """Lightweight liveness check — runs in executor.
+
+        Returns True if the interface appears alive, raises or returns False
+        if it is dead.  Uses the node count as a proxy: a connected interface
+        always has at least our own node in the database.
+        """
+        if self._interface is None:
+            return False
+        try:
+            nodes = self._interface.nodes
+            # An empty dict is valid on a fresh connection; None means broken.
+            return nodes is not None
+        except Exception:  # noqa: BLE001
+            return False
+
     def _create_interface(self) -> Any:
         """Create a meshtastic interface (runs in executor)."""
         if self._connection_type == ConnectionType.TCP:
@@ -748,36 +853,19 @@ class MeshtasticConnection:
     def _async_handle_connected(self) -> None:
         """Handle connection established (runs on HA event loop)."""
         self._set_state(ConnectionState.CONNECTED)
+        self._start_watchdog()
 
     def _async_handle_disconnected(self) -> None:
         """Handle connection lost — start reconnect loop (runs on HA event loop)."""
         if self._state == ConnectionState.DISCONNECTED:
             return  # intentional disconnect, don't reconnect
         _LOGGER.warning("Lost connection to Meshtastic radio, will reconnect")
+        self._stop_watchdog()
         self._set_state(ConnectionState.RECONNECTING)
         if self._reconnect_task is None or self._reconnect_task.done():
             self._reconnect_task = asyncio.ensure_future(
                 self._async_reconnect_loop()
             )
-
-    async def async_force_reconnect(self) -> None:
-        """Cancel any pending backoff and attempt to reconnect immediately."""
-        if self._reconnect_task is not None:
-            self._reconnect_task.cancel()
-            self._reconnect_task = None
-
-        if self._interface is not None:
-            old = self._interface
-            self._interface = None
-            try:
-                await self._hass.async_add_executor_job(old.close)
-            except Exception:  # noqa: BLE001
-                pass
-
-        self._set_state(ConnectionState.RECONNECTING)
-        self._reconnect_task = asyncio.ensure_future(
-            self._async_reconnect_loop(initial_delay=0)
-        )
 
     async def _async_reconnect_loop(self, initial_delay: int = MIN_RECONNECT_DELAY) -> None:
         """Attempt to reconnect with exponential backoff."""
@@ -804,6 +892,7 @@ class MeshtasticConnection:
                 )
                 self._setup_pubsub_listeners()
                 self._set_state(ConnectionState.CONNECTED)
+                self._start_watchdog()
                 _LOGGER.debug("Reconnected to Meshtastic radio")
                 return
             except Exception:  # noqa: BLE001
@@ -818,47 +907,11 @@ class MeshtasticConnection:
         old_state = self._state
         self._state = new_state
         if old_state != new_state:
-            if new_state == ConnectionState.CONNECTED:
-                self._last_activity_time = time.monotonic()
-                if self._watchdog_task is None or self._watchdog_task.done():
-                    self._watchdog_task = asyncio.ensure_future(
-                        self._async_watchdog_loop()
-                    )
-            elif old_state == ConnectionState.CONNECTED:
-                if self._watchdog_task is not None:
-                    self._watchdog_task.cancel()
-                    self._watchdog_task = None
             for cb in self._connection_change_callbacks:
                 try:
                     cb(new_state, old_state)
                 except Exception:  # noqa: BLE001
                     _LOGGER.exception("Error in connection change callback")
-
-    async def _async_watchdog_loop(self) -> None:
-        """Periodically verify the radio connection is still alive."""
-        while True:
-            await asyncio.sleep(WATCHDOG_INTERVAL)
-            if self._state != ConnectionState.CONNECTED:
-                return
-
-            # Check meshtastic's internal connected flag first — fast, no I/O.
-            alive = await self._hass.async_add_executor_job(self._check_alive)
-            if not alive:
-                _LOGGER.warning(
-                    "Watchdog: radio interface reports disconnected, forcing reconnect"
-                )
-                await self.async_force_reconnect()
-                return
-
-            # Also check for prolonged inactivity — catches hung TCP sockets where
-            # the meshtastic library hasn't detected the drop yet.
-            elapsed = time.monotonic() - self._last_activity_time
-            if elapsed > WATCHDOG_THRESHOLD:
-                _LOGGER.warning(
-                    "Watchdog: no radio traffic for %.0fs, forcing reconnect", elapsed
-                )
-                await self.async_force_reconnect()
-                return
 
     def _check_alive(self) -> bool:
         """Check if the meshtastic interface is still connected (runs in executor)."""

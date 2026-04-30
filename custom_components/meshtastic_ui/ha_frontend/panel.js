@@ -71,6 +71,8 @@ class MeshtasticUiPanel extends LitElement {
       _nodeDialogId: { type: String },
       _nodeDialogFeedback: { type: String },
       _showReconnectBanner: { type: Boolean },
+      _reconnecting: { type: Boolean },
+      _reconnectStatus: { type: String },
     };
   }
 
@@ -114,6 +116,7 @@ class MeshtasticUiPanel extends LitElement {
     this._subscribing = false;
     this._subscribeGen = 0;
     this._prevConnection = null;
+    this._reconnecting = false;    
   }
 
   connectedCallback() {
@@ -471,6 +474,17 @@ class MeshtasticUiPanel extends LitElement {
     }
   }
 
+  async _onReconnect() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
+    const result = await this._wsCommand("meshtastic_ui/reconnect");
+    // Wait briefly for the backend reconnect loop to fire before refreshing
+    setTimeout(async () => {
+      await this._loadGateways();
+      this._reconnecting = false;
+    }, 3000);
+  }
+    
   _onSelectConversation(e) {
     const conv = e.detail.conversation;
     this._selectedConversation = conv;
@@ -939,7 +953,9 @@ class MeshtasticUiPanel extends LitElement {
           .packetTypes=${this._packetTypes}
           .chartWindow=${this._chartWindow}
           .bucketInterval=${this._tsBucketInterval || 10}
+          .reconnecting=${this._reconnecting}
           @chart-window-change=${this._onChartWindowChange}
+          @reconnect=${this._onReconnect}
         ></mesh-radio-tab>`;
       case "messages":
         return html`
