@@ -72,7 +72,6 @@ class MeshtasticUiPanel extends LitElement {
       _nodeDialogFeedback: { type: String },
       _showReconnectBanner: { type: Boolean },
       _reconnecting: { type: Boolean },
-      _reconnectStatus: { type: String },
     };
   }
 
@@ -103,6 +102,7 @@ class MeshtasticUiPanel extends LitElement {
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
     this._showReconnectBanner = false;
+    this._reconnecting = false;
     this._wsFailCount = 0;
     this._timeSeries = null;
     this._packetTypes = null;
@@ -217,6 +217,23 @@ class MeshtasticUiPanel extends LitElement {
       this._wsFailCount++;
       if (this._wsFailCount >= 2) this._showReconnectBanner = true;
       return null;
+    }
+  }
+
+  async _handleReconnectClick() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
+    try {
+      // Try a backend force-reconnect first — works when the radio dropped
+      // but the HA WebSocket is still alive. Banner clears on the next
+      // successful WS call.
+      await this.hass.callWS({ type: "meshtastic_ui/reconnect" });
+    } catch (err) {
+      // HA WebSocket itself is unreachable — page reload is the only recovery.
+      location.reload();
+      return;
+    } finally {
+      this._reconnecting = false;
     }
   }
 
@@ -475,14 +492,7 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   async _onReconnect() {
-    if (this._reconnecting) return;
-    this._reconnecting = true;
-    const result = await this._wsCommand("meshtastic_ui/reconnect");
-    // Wait briefly for the backend reconnect loop to fire before refreshing
-    setTimeout(async () => {
-      await this._loadGateways();
-      this._reconnecting = false;
-    }, 3000);
+    await this._handleReconnectClick();
   }
     
   _onSelectConversation(e) {
@@ -930,9 +940,9 @@ class MeshtasticUiPanel extends LitElement {
         </div>
       </div>
       ${this._showReconnectBanner ? html`
-        <div class="reconnect-banner" @click=${() => this.hass.callWS({ type: "meshtastic_ui/reconnect" }).catch(() => {})}>
+        <div class="reconnect-banner" @click=${() => this._handleReconnectClick()}>
           <ha-icon icon="mdi:connection"></ha-icon>
-          Connection lost — click to reconnect
+          ${this._reconnecting ? "Reconnecting…" : "Connection lost — click to reconnect"}
         </div>
       ` : ""}
       <div class="content">

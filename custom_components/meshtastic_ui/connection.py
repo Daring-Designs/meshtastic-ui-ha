@@ -308,6 +308,10 @@ class MeshtasticConnection:
 
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
             self._reconnect_task = None
 
         self._teardown_pubsub_listeners()
