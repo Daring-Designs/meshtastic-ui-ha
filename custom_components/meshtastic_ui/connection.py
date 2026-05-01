@@ -173,6 +173,7 @@ class MeshtasticConnection:
         self._interface: Any | None = None
         self._state = ConnectionState.DISCONNECTED
         self._reconnect_task: asyncio.Task | None = None
+        self._reconnect_gen: int = 0  # incremented each time a new loop is started
         self._watchdog_task: asyncio.Task | None = None
         self._last_activity_time: float = 0.0
 
@@ -263,10 +264,11 @@ class MeshtasticConnection:
                 "Initial connection to Meshtastic radio failed (%s), will retry", err
             )
             self._interface = None
+            self._reconnect_gen += 1
             self._set_state(ConnectionState.RECONNECTING)
             if self._reconnect_task is None or self._reconnect_task.done():
                 self._reconnect_task = asyncio.ensure_future(
-                    self._async_reconnect_loop()
+                    self._async_reconnect_loop(gen=self._reconnect_gen)
                 )
 
     async def async_disconnect(self) -> None:
@@ -320,8 +322,11 @@ class MeshtasticConnection:
 
         # Bypass the DISCONNECTED guard in _async_handle_disconnected —
         # always start a fresh reconnect loop, skipping the initial backoff delay.
+        self._reconnect_gen += 1
         self._set_state(ConnectionState.RECONNECTING)
-        self._reconnect_task = asyncio.ensure_future(self._async_reconnect_loop(initial_delay=0))
+        self._reconnect_task = asyncio.ensure_future(
+            self._async_reconnect_loop(initial_delay=0, gen=self._reconnect_gen)
+        )
 
     async def async_send_text(
         self,
@@ -680,6 +685,7 @@ class MeshtasticConnection:
     def _start_watchdog(self) -> None:
         """Start the connection watchdog task."""
         self._stop_watchdog()
+        self._last_activity_time = time.monotonic()  # reset on every (re)connect
         self._watchdog_task = asyncio.ensure_future(self._async_watchdog_loop())
 
     def _stop_watchdog(self) -> None:
@@ -861,20 +867,21 @@ class MeshtasticConnection:
             return  # intentional disconnect, don't reconnect
         _LOGGER.warning("Lost connection to Meshtastic radio, will reconnect")
         self._stop_watchdog()
+        self._reconnect_gen += 1
         self._set_state(ConnectionState.RECONNECTING)
         if self._reconnect_task is None or self._reconnect_task.done():
             self._reconnect_task = asyncio.ensure_future(
-                self._async_reconnect_loop()
+                self._async_reconnect_loop(gen=self._reconnect_gen)
             )
 
-    async def _async_reconnect_loop(self, initial_delay: int = MIN_RECONNECT_DELAY) -> None:
+    async def _async_reconnect_loop(self, initial_delay: int = MIN_RECONNECT_DELAY, gen: int = 0) -> None:
         """Attempt to reconnect with exponential backoff."""
         delay = initial_delay
-        while self._state == ConnectionState.RECONNECTING:
+        while self._state == ConnectionState.RECONNECTING and gen == self._reconnect_gen:
             if delay > 0:
                 _LOGGER.debug("Reconnecting in %d seconds...", delay)
                 await asyncio.sleep(delay)
-            if self._state != ConnectionState.RECONNECTING:
+            if self._state != ConnectionState.RECONNECTING or gen != self._reconnect_gen:
                 return
 
             # Clean up old interface.
@@ -896,11 +903,12 @@ class MeshtasticConnection:
                 _LOGGER.debug("Reconnected to Meshtastic radio")
                 return
             except Exception:  # noqa: BLE001
+                next_delay = min(max(delay * 2, MIN_RECONNECT_DELAY), MAX_RECONNECT_DELAY)
                 _LOGGER.debug(
                     "Reconnect attempt failed, next try in %d seconds",
-                    min(delay * 2, MAX_RECONNECT_DELAY),
+                    next_delay,
                 )
-                delay = min(delay * 2, MAX_RECONNECT_DELAY)
+                delay = next_delay
 
     def _set_state(self, new_state: ConnectionState) -> None:
         """Update connection state and notify callbacks."""
