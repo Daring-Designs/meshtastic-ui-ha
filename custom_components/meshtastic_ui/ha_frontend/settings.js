@@ -59,14 +59,16 @@ const CHANNEL_ROLES = [
 const DEVICE_ROLES = [
   { value: "CLIENT", label: "Client" },
   { value: "CLIENT_MUTE", label: "Client Mute" },
+  { value: "CLIENT_HIDDEN", label: "Client Hidden" },
+  { value: "CLIENT_BASE", label: "Client Base" },
   { value: "ROUTER", label: "Router" },
+  { value: "ROUTER_LATE", label: "Router Late" },
   { value: "ROUTER_CLIENT", label: "Router Client" },
   { value: "REPEATER", label: "Repeater" },
   { value: "TRACKER", label: "Tracker" },
   { value: "SENSOR", label: "Sensor" },
   { value: "TAK", label: "TAK" },
   { value: "TAK_TRACKER", label: "TAK Tracker" },
-  { value: "CLIENT_HIDDEN", label: "Client Hidden" },
   { value: "LOST_AND_FOUND", label: "Lost and Found" },
 ];
 
@@ -719,6 +721,7 @@ class MeshSettingsChannels extends LitElement {
               </div>
               <div class="psk-row">
                 <mesh-text-input
+                  type="password"
                   .value=${draft.psk}
                   placeholder="Base64 encoded key"
                   @change=${(e) => this._updateChannelField(index, "psk", e.detail.value)}
@@ -1463,6 +1466,7 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
                 ></mesh-text-input>
                 <mesh-text-input
                   label="WiFi Password"
+                  type="password"
                   .value=${d.wifi_psk || ""}
                   placeholder="Password"
                   @change=${(e) => this._updateField("wifi_psk", e.detail.value)}

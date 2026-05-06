@@ -312,6 +312,8 @@ export class MeshTextInput extends LitElement {
       value: { type: String },
       maxlength: { type: Number },
       placeholder: { type: String },
+      type: { type: String },
+      _revealed: { type: Boolean, state: true },
     };
   }
 
@@ -319,6 +321,8 @@ export class MeshTextInput extends LitElement {
     super();
     this.value = "";
     this.placeholder = "";
+    this.type = "text";
+    this._revealed = false;
   }
 
   static get styles() {
@@ -343,10 +347,37 @@ export class MeshTextInput extends LitElement {
         color: var(--primary-text-color);
         font-size: 14px;
         outline: none;
+        width: 100%;
+        box-sizing: border-box;
       }
       input:focus {
         border-color: var(--primary-color);
       }
+      .input-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .input-wrap.password input {
+        padding-right: 36px;
+      }
+      .reveal-btn {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: transparent;
+        border: none;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+        padding: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+      }
+      .reveal-btn:hover { color: var(--primary-text-color); }
+      .reveal-btn ha-icon { --mdc-icon-size: 18px; }
       .description {
         font-size: 11px;
         color: var(--secondary-text-color);
@@ -356,15 +387,30 @@ export class MeshTextInput extends LitElement {
   }
 
   render() {
+    const isPassword = this.type === "password";
+    const inputType = isPassword && !this._revealed ? "password" : "text";
     return html`
       ${this.label ? html`<label>${this.label}</label>` : ""}
-      <input
-        type="text"
-        .value=${this.value}
-        maxlength=${this.maxlength ?? ""}
-        placeholder=${this.placeholder}
-        @input=${this._onInput}
-      />
+      <div class="input-wrap ${isPassword ? "password" : ""}">
+        <input
+          type=${inputType}
+          .value=${this.value}
+          maxlength=${this.maxlength ?? ""}
+          placeholder=${this.placeholder}
+          autocomplete=${isPassword ? "off" : ""}
+          @input=${this._onInput}
+        />
+        ${isPassword ? html`
+          <button
+            type="button"
+            class="reveal-btn"
+            @click=${() => { this._revealed = !this._revealed; }}
+            title=${this._revealed ? "Hide" : "Show"}
+          >
+            <ha-icon icon=${this._revealed ? "mdi:eye-off" : "mdi:eye"}></ha-icon>
+          </button>
+        ` : ""}
+      </div>
       ${this.description ? html`<span class="description">${this.description}</span>` : ""}
     `;
   }

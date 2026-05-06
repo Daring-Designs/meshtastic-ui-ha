@@ -1620,9 +1620,16 @@ export class MeshMapTab extends LitElement {
     this._userLocationMarker = null;
     this._userLocationCircle = null;
     this._tileLayer = null;
-    // Dark mode: check localStorage override, else follow HA theme.
-    const stored = localStorage.getItem("meshtastic_map_dark");
-    this._darkMap = stored != null ? stored === "true" : this._detectDarkTheme();
+    // Tile style: "light" | "dark" | "satellite". Migrate legacy dark bool
+    // (meshtastic_map_dark) to the new key on first load, else follow HA theme.
+    const storedStyle = localStorage.getItem("meshtastic_map_style");
+    if (storedStyle === "light" || storedStyle === "dark" || storedStyle === "satellite") {
+      this._mapStyle = storedStyle;
+    } else {
+      const legacyDark = localStorage.getItem("meshtastic_map_dark");
+      const dark = legacyDark != null ? legacyDark === "true" : this._detectDarkTheme();
+      this._mapStyle = dark ? "dark" : "light";
+    }
   }
 
   _detectDarkTheme() {
@@ -1900,9 +1907,17 @@ export class MeshMapTab extends LitElement {
           <button class="locate-btn" @click=${() => this._locateUser()} title="Find my location">
             \u25CE Locate
           </button>
-          <button class="layer-btn ${this._darkMap ? "active" : ""}"
-            @click=${() => this._toggleDarkMap()} title="Toggle dark map tiles">
+          <button class="layer-btn ${this._mapStyle === "light" ? "active" : ""}"
+            @click=${() => this._setMapStyle("light")} title="Light map">
+            \u2600 Light
+          </button>
+          <button class="layer-btn ${this._mapStyle === "dark" ? "active" : ""}"
+            @click=${() => this._setMapStyle("dark")} title="Dark map">
             \u263D Dark
+          </button>
+          <button class="layer-btn ${this._mapStyle === "satellite" ? "active" : ""}"
+            @click=${() => this._setMapStyle("satellite")} title="Satellite imagery">
+            \u{1F30D} Satellite
           </button>
         </div>
         ${nodesWithout > 0 ? html`
@@ -2039,23 +2054,35 @@ export class MeshMapTab extends LitElement {
     this._waypointDialog = null;
   }
 
-  _createTileLayer(dark) {
+  _createTileLayer(style) {
+    if (style === "satellite") {
+      return L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+          maxZoom: 19,
+          noWrap: true,
+        }
+      );
+    }
     const lightUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
     const darkUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
     const attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
-    return L.tileLayer(dark ? darkUrl : lightUrl, {
+    return L.tileLayer(style === "dark" ? darkUrl : lightUrl, {
       attribution: attr,
       maxZoom: 19,
       noWrap: true,
     });
   }
 
-  _toggleDarkMap() {
-    this._darkMap = !this._darkMap;
-    localStorage.setItem("meshtastic_map_dark", String(this._darkMap));
+  _setMapStyle(style) {
+    if (style !== "light" && style !== "dark" && style !== "satellite") return;
+    if (style === this._mapStyle) return;
+    this._mapStyle = style;
+    localStorage.setItem("meshtastic_map_style", style);
     if (this._mapInstance && this._tileLayer) {
       this._mapInstance.removeLayer(this._tileLayer);
-      this._tileLayer = this._createTileLayer(this._darkMap).addTo(this._mapInstance);
+      this._tileLayer = this._createTileLayer(this._mapStyle).addTo(this._mapInstance);
     }
     this.requestUpdate();
   }
@@ -2155,7 +2182,7 @@ export class MeshMapTab extends LitElement {
       maxBoundsViscosity: 1.0,
     }).setView(initCenter, initZoom);
 
-    this._tileLayer = this._createTileLayer(this._darkMap).addTo(map);
+    this._tileLayer = this._createTileLayer(this._mapStyle).addTo(map);
 
     // Persist position and zoom on every move.
     map.on("moveend", () => {

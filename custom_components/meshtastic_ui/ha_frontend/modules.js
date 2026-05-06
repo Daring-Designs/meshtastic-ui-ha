@@ -166,7 +166,7 @@ class MeshSettingsMqtt extends ModuleConfigPanel {
                   @change=${(e) => this._updateField("port", e.detail.value)}></mesh-number-input>
                 <mesh-text-input label="Username" .value=${d.username || ""}
                   @change=${(e) => this._updateField("username", e.detail.value)}></mesh-text-input>
-                <mesh-text-input label="Password" .value=${d.password || ""}
+                <mesh-text-input label="Password" type="password" .value=${d.password || ""}
                   @change=${(e) => this._updateField("password", e.detail.value)}></mesh-text-input>
                 <mesh-text-input label="Root Topic" description="MQTT root topic"
                   .value=${d.root || ""} placeholder="msh"
