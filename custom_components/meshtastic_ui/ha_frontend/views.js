@@ -166,6 +166,7 @@ export class MeshRadioTab extends LitElement {
       reconnecting: { type: Boolean },
       radios: { type: Array },
       selectedRadioId: { type: String },
+      radioUnread: { type: Object },
     };
   }
 
@@ -179,6 +180,7 @@ export class MeshRadioTab extends LitElement {
     this.reconnecting = false;
     this.radios = [];
     this.selectedRadioId = null;
+    this.radioUnread = {};
   }
 
   static get styles() {
@@ -240,6 +242,24 @@ export class MeshRadioTab extends LitElement {
         }
         .gateway-name-switcher:hover { color: var(--primary-color); }
         .gateway-name-switcher:focus { outline: none; }
+        .gateway-name-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          flex: 0 1 auto;
+          min-width: 0;
+        }
+        .gateway-unread-dot {
+          position: absolute;
+          top: 4px;
+          right: 0;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #f44336;
+          box-shadow: 0 0 4px rgba(244,67,54,0.6);
+          pointer-events: none;
+        }
         .gateway-meta {
           display: flex; gap: 16px;
           font-size: 13px; color: var(--secondary-text-color);
@@ -479,22 +499,33 @@ export class MeshRadioTab extends LitElement {
     const channels = gw.channels || [];
 
     const multipleRadios = (this.radios || []).length > 1;
+    // Red dot when at least one *other* radio has unseen messages.
+    const otherUnread = Object.entries(this.radioUnread || {}).some(
+      ([rid, count]) => rid !== this.selectedRadioId && count > 0
+    );
     return html`
       <div class="gateway-card">
         <div class="gateway-card-header">
           <div class="status-dot ${isConnected ? "connected" : "disconnected"}"></div>
           ${multipleRadios ? html`
-            <select class="gateway-name-switcher"
-              .value=${this.selectedRadioId || ""}
-              @change=${(e) => this._onRadioSwitch(e.target.value)}
-              title="Switch active radio"
-            >
-              ${this.radios.map((r) => html`
-                <option value=${r.radio_id} ?selected=${r.radio_id === this.selectedRadioId}>
-                  ${r.name || r.title || "Meshtastic Radio"}${r.last4 ? ` (${r.last4})` : ""}
-                </option>
-              `)}
-            </select>
+            <div class="gateway-name-wrap">
+              <select class="gateway-name-switcher"
+                .value=${this.selectedRadioId || ""}
+                @change=${(e) => this._onRadioSwitch(e.target.value)}
+                title="Switch active radio"
+              >
+                ${this.radios.map((r) => {
+                  const unread = this.radioUnread?.[r.radio_id] || 0;
+                  const dot = (unread > 0 && r.radio_id !== this.selectedRadioId) ? " •" : "";
+                  return html`
+                    <option value=${r.radio_id} ?selected=${r.radio_id === this.selectedRadioId}>
+                      ${r.name || r.title || "Meshtastic Radio"}${r.last4 ? ` (${r.last4})` : ""}${dot}
+                    </option>
+                  `;
+                })}
+              </select>
+              ${otherUnread ? html`<span class="gateway-unread-dot" title="Another radio has new messages"></span>` : ""}
+            </div>
           ` : html`<div class="gateway-name">${gw.name}</div>`}
           <div class="gateway-meta">
             ${gw.model ? html`<span>${gw.model}</span>` : ""}

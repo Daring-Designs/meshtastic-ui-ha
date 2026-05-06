@@ -74,6 +74,7 @@ class MeshtasticUiPanel extends LitElement {
       _reconnecting: { type: Boolean },
       _radios: { type: Array },
       _selectedRadioId: { type: String },
+      _radioUnread: { type: Object },
     };
   }
 
@@ -107,6 +108,7 @@ class MeshtasticUiPanel extends LitElement {
     this._reconnecting = false;
     this._radios = [];
     this._selectedRadioId = localStorage.getItem("meshtastic_selected_radio") || null;
+    this._radioUnread = {};
     this._wsFailCount = 0;
     this._timeSeries = null;
     this._packetTypes = null;
@@ -251,6 +253,11 @@ class MeshtasticUiPanel extends LitElement {
     if (!radioId || radioId === this._selectedRadioId) return;
     this._selectedRadioId = radioId;
     localStorage.setItem("meshtastic_selected_radio", radioId);
+    // Clear the red-dot for the radio we just switched to.
+    if (this._radioUnread[radioId]) {
+      const { [radioId]: _, ...rest } = this._radioUnread;
+      this._radioUnread = rest;
+    }
     // Drop in-memory state so we don't render stale data while reloading.
     this._messages = {};
     this._channels = [];
@@ -374,13 +381,14 @@ class MeshtasticUiPanel extends LitElement {
       this[key] = unsub;
     };
 
-    const radioId = this._selectedRadioId;
-    const sub = (subType) => ({ type: subType, ...(radioId ? { radio_id: radioId } : {}) });
-
+    // Subscribe without a radio_id so the panel receives events from every
+    // configured radio. _handleRealtimeMessage routes them — events from the
+    // selected radio render in the chat; others bump the per-radio unread
+    // counter so the gateway switcher can show a red dot.
     if (!this._unsubscribeFn) {
       conn.subscribeMessage(
         (event) => this._handleRealtimeMessage(event),
-        sub("meshtastic_ui/subscribe")
+        { type: "meshtastic_ui/subscribe" }
       )
       .then(safeThen("_unsubscribeFn"))
       .catch((err) => console.warn("Subscribe failed:", err));
@@ -389,7 +397,7 @@ class MeshtasticUiPanel extends LitElement {
     if (!this._unsubNodesFn) {
       conn.subscribeMessage(
         (event) => this._handleNodeUpdate(event),
-        sub("meshtastic_ui/subscribe_nodes")
+        { type: "meshtastic_ui/subscribe_nodes" }
       )
       .then(safeThen("_unsubNodesFn"))
       .catch((err) => console.warn("Subscribe nodes failed:", err));
@@ -398,7 +406,7 @@ class MeshtasticUiPanel extends LitElement {
     if (!this._unsubDeliveryFn) {
       conn.subscribeMessage(
         (event) => this._handleDeliveryStatus(event),
-        sub("meshtastic_ui/subscribe_delivery")
+        { type: "meshtastic_ui/subscribe_delivery" }
       )
       .then(safeThen("_unsubDeliveryFn"))
       .catch((err) => console.warn("Subscribe delivery failed:", err));
@@ -407,7 +415,7 @@ class MeshtasticUiPanel extends LitElement {
     if (!this._unsubWaypointsFn) {
       conn.subscribeMessage(
         (event) => this._handleWaypointUpdate(event),
-        sub("meshtastic_ui/subscribe_waypoints")
+        { type: "meshtastic_ui/subscribe_waypoints" }
       )
       .then(safeThen("_unsubWaypointsFn"))
       .catch((err) => console.warn("Subscribe waypoints failed:", err));
@@ -416,7 +424,7 @@ class MeshtasticUiPanel extends LitElement {
     if (!this._unsubTraceroutesFn) {
       conn.subscribeMessage(
         (event) => this._handleTracerouteResult(event),
-        sub("meshtastic_ui/subscribe_traceroutes")
+        { type: "meshtastic_ui/subscribe_traceroutes" }
       )
       .then(safeThen("_unsubTraceroutesFn"))
       .catch((err) => console.warn("Subscribe traceroutes failed:", err));
@@ -444,6 +452,24 @@ class MeshtasticUiPanel extends LitElement {
   _handleRealtimeMessage(data) {
     const key = data.type === "dm" ? data.partner : data.channel;
     if (!key) return;
+
+    // Route by entry_id: events from radios other than the active one don't
+    // touch the active radio's chat — they only bump that radio's unread
+    // counter, surfaced as a red dot on the gateway switcher (#multi-radio).
+    const eventEntryId = data.entry_id;
+    if (
+      eventEntryId &&
+      this._selectedRadioId &&
+      eventEntryId !== this._selectedRadioId
+    ) {
+      if (!data._outgoing) {
+        this._radioUnread = {
+          ...this._radioUnread,
+          [eventEntryId]: (this._radioUnread[eventEntryId] || 0) + 1,
+        };
+      }
+      return;
+    }
 
     if (!this._messages[key]) {
       this._messages[key] = [];
@@ -1074,6 +1100,7 @@ class MeshtasticUiPanel extends LitElement {
           .reconnecting=${this._reconnecting}
           .radios=${this._radios}
           .selectedRadioId=${this._selectedRadioId}
+          .radioUnread=${this._radioUnread}
           @chart-window-change=${this._onChartWindowChange}
           @reconnect=${this._onReconnect}
           @switch-radio=${(e) => this._switchRadio(e.detail.radio_id)}

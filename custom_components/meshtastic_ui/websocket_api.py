@@ -536,8 +536,13 @@ async def ws_send_message(
     """Send a message via the radio."""
     from datetime import datetime, timezone
 
-    conn = _get_connection(hass, msg.get("radio_id"))
-    store = _get_store(hass, msg.get("radio_id"))
+    radio_id = msg.get("radio_id")
+    entry_data = _get_entry_data(hass, radio_id)
+    if entry_data is None:
+        connection.send_error(msg["id"], "no_radio", "No radio configured")
+        return
+    conn = entry_data["connection"]
+    store = entry_data["store"]
     text = msg["text"]
     channel = msg.get("channel", 0)
     to = msg.get("to")
@@ -550,15 +555,17 @@ async def ws_send_message(
     if node_num is not None:
         local_node_id = f"!{node_num:08x}"
 
+    # Resolve the per-entry id even if radio_id was omitted (multi-radio).
+    entry_id_for_dispatch = entry_data.get("entry_id") or radio_id
+
     try:
         packet_id = await conn.async_send_text(
             text, destination_id=to, channel_index=channel,
             reply_id=reply_id,
         )
-        # Register for delivery tracking.
+        # Register for delivery tracking against this radio's pending_acks.
         if packet_id is not None:
-            pending = hass.data.get(DOMAIN, {}).get("pending_acks", {})
-            pending[packet_id] = {
+            entry_data.setdefault("pending_acks", {})[packet_id] = {
                 "text": text,
                 "to": to,
                 "channel": channel,
@@ -586,7 +593,7 @@ async def ws_send_message(
             async_dispatcher_send(
                 hass,
                 SIGNAL_NEW_MESSAGE,
-                {"type": "dm", "partner": to, **out_msg},
+                {"entry_id": entry_id_for_dispatch, "type": "dm", "partner": to, **out_msg},
             )
         else:
             # Channel broadcast.
@@ -597,15 +604,34 @@ async def ws_send_message(
             async_dispatcher_send(
                 hass,
                 SIGNAL_NEW_MESSAGE,
-                {"type": "channel", "channel": channel_key, **out_msg},
+                {"entry_id": entry_id_for_dispatch, "type": "channel", "channel": channel_key, **out_msg},
             )
 
         connection.send_result(
             msg["id"], {"success": True, "packet_id": packet_id}
         )
     except Exception as err:  # noqa: BLE001
+        # If the underlying transport reports it's not connected (common for
+        # BLE radios that drop silently), kick the reconnect loop so the UI
+        # banner / state reflects reality and a retry has a path forward.
+        err_text = str(err)
+        if "Not connected" in err_text or "BLEError" in type(err).__name__:
+            _LOGGER.warning(
+                "Send failed because the radio link is down (%s); triggering reconnect",
+                err_text,
+            )
+            try:
+                hass.async_create_task(conn.async_force_reconnect())
+            except Exception:  # noqa: BLE001
+                pass
+            connection.send_error(
+                msg["id"],
+                "radio_disconnected",
+                "Radio disconnected — reconnecting. Try again in a few seconds.",
+            )
+            return
         _LOGGER.exception("Send message failed")
-        connection.send_error(msg["id"], "send_failed", "Operation failed")
+        connection.send_error(msg["id"], "send_failed", err_text or "Operation failed")
 
 
 @websocket_command(
