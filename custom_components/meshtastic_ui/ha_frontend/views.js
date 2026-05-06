@@ -270,7 +270,28 @@ export class MeshRadioTab extends LitElement {
           margin-bottom: 4px;
           display: flex;
           align-items: center;
+          justify-content: space-between;
           gap: 12px;
+          flex-wrap: wrap;
+        }
+        .charts-heading-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .refresh-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 10px;
+          border-radius: 12px;
+          background: var(--secondary-background-color);
+          border: 1px solid var(--divider-color);
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--secondary-text-color);
+          cursor: help;
+          white-space: nowrap;
         }
         .window-select {
           padding: 4px 8px;
@@ -311,18 +332,27 @@ export class MeshRadioTab extends LitElement {
     const bi = this.bucketInterval || 10;
     const pktUnit = bi >= 60 ? `pkts/${Math.round(bi / 60)}min` : `pkts/${bi}s`;
     const presetLabel = CHART_WINDOW_PRESETS.find((p) => p.value === this.chartWindow)?.label || "Custom";
+    // Use telemetry interval from the first connected gateway.
+    const tlmInterval = this.gateways.find((g) => g.telemetry_interval != null)?.telemetry_interval;
     return html`
       ${this.gateways.map((gw) => this._renderGatewayCard(gw))}
       ${ts ? html`
         <div class="charts-heading">
           <span>${presetLabel} Activity</span>
-          <select class="window-select"
-            .value=${String(this.chartWindow)}
-            @change=${this._onWindowChange}>
-            ${CHART_WINDOW_PRESETS.map((p) => html`
-              <option value=${p.value} ?selected=${p.value === this.chartWindow}>${p.label}</option>
-            `)}
-          </select>
+          <div class="charts-heading-meta">
+            ${tlmInterval != null ? html`
+              <span class="refresh-pill" title="Radio broadcasts device metrics on this interval. Change in Settings → Telemetry.">
+                ↻ ${this._formatInterval(tlmInterval)}
+              </span>
+            ` : ""}
+            <select class="window-select"
+              .value=${String(this.chartWindow)}
+              @change=${this._onWindowChange}>
+              ${CHART_WINDOW_PRESETS.map((p) => html`
+                <option value=${p.value} ?selected=${p.value === this.chartWindow}>${p.label}</option>
+              `)}
+            </select>
+          </div>
         </div>
         <div class="charts-section">
           <mesh-horizon-chart
@@ -381,6 +411,20 @@ export class MeshRadioTab extends LitElement {
       bubbles: true,
       composed: true,
     }));
+  }
+
+  _formatInterval(secs) {
+    // 0 means "firmware default" — fw 2.7.x uses 3600s.
+    if (secs === 0) return "every 1h (fw default)";
+    if (secs < 60) return `every ${secs}s`;
+    if (secs < 3600) {
+      const minutes = Math.round(secs / 60);
+      return `every ${minutes} min`;
+    }
+    const hours = secs / 3600;
+    return hours === Math.floor(hours)
+      ? `every ${hours}h`
+      : `every ${hours.toFixed(1)}h`;
   }
 
   _handleReconnect() {

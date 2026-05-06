@@ -182,6 +182,18 @@ async def ws_gateways(
     if node_num is not None:
         local_node_id = f"!{node_num:08x}"
 
+    # Telemetry broadcast interval — drives the chart refresh cadence.
+    # 0 means "use firmware default" (3600s on fw 2.7.x).
+    telemetry_interval = None
+    if iface is not None:
+        try:
+            module_config = iface.localNode.moduleConfig
+            telemetry_interval = int(
+                module_config.telemetry.device_update_interval
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     gateways.append(
         {
             "entity_id": None,
@@ -193,6 +205,7 @@ async def ws_gateways(
             "sensors": sensors,
             "channels": channels,
             "node_id": local_node_id,
+            "telemetry_interval": telemetry_interval,
         }
     )
 
