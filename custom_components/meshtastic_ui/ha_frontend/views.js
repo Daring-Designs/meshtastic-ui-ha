@@ -163,6 +163,7 @@ export class MeshRadioTab extends LitElement {
       packetTypes: { type: Object },
       chartWindow: { type: Number },
       bucketInterval: { type: Number },
+      reconnecting: { type: Boolean },
     };
   }
 
@@ -173,6 +174,7 @@ export class MeshRadioTab extends LitElement {
     this.packetTypes = null;
     this.chartWindow = 3600;
     this.bucketInterval = 10;
+    this.reconnecting = false;
   }
 
   static get styles() {
@@ -214,6 +216,31 @@ export class MeshRadioTab extends LitElement {
           font-size: 13px; color: var(--secondary-text-color);
         }
         .gateway-meta span { white-space: nowrap; }
+        .reconnect-btn {
+          padding: 5px 12px;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color);
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        .reconnect-btn:hover { opacity: 0.8; }
+        .reconnect-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .spinner {
+          display: inline-block; width: 12px; height: 12px;
+          border: 2px solid var(--divider-color);
+          border-top-color: var(--primary-color);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .gateway-section { padding: 16px 20px; }
         .gateway-section + .gateway-section { border-top: 1px solid var(--divider-color); }
 
@@ -356,6 +383,10 @@ export class MeshRadioTab extends LitElement {
     }));
   }
 
+  _handleReconnect() {
+    this.dispatchEvent(new CustomEvent("reconnect", { bubbles: true, composed: true }));
+  }
+
   _renderGatewayCard(gw) {
     const isConnected = gw.state?.toLowerCase() === "connected" || gw.state?.toLowerCase() === "on";
     const sensors = gw.sensors || {};
@@ -372,6 +403,16 @@ export class MeshRadioTab extends LitElement {
             ${gw.serial ? html`<span>${gw.serial}</span>` : ""}
             ${sensors.uptime ? html`<span>Up ${formatUptime(sensors.uptime)}</span>` : ""}
           </div>
+          <button
+            class="reconnect-btn"
+            ?disabled=${this.reconnecting}
+            @click=${this._handleReconnect}
+            title="Force reconnect to radio"
+          >
+            ${this.reconnecting
+              ? html`<span class="spinner"></span> Reconnecting…`
+              : html`↺ Reconnect`}
+          </button>
         </div>
 
         <div class="gateway-section">

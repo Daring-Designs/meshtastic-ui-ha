@@ -490,6 +490,10 @@ class MeshtasticUiPanel extends LitElement {
     }
   }
 
+  async _onReconnect() {
+    await this._handleReconnectClick();
+  }
+    
   _onSelectConversation(e) {
     const conv = e.detail.conversation;
     this._selectedConversation = conv;
@@ -958,7 +962,9 @@ class MeshtasticUiPanel extends LitElement {
           .packetTypes=${this._packetTypes}
           .chartWindow=${this._chartWindow}
           .bucketInterval=${this._tsBucketInterval || 10}
+          .reconnecting=${this._reconnecting}
           @chart-window-change=${this._onChartWindowChange}
+          @reconnect=${this._onReconnect}
         ></mesh-radio-tab>`;
       case "messages":
         return html`
