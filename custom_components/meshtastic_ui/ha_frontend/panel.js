@@ -116,7 +116,6 @@ class MeshtasticUiPanel extends LitElement {
     this._subscribing = false;
     this._subscribeGen = 0;
     this._prevConnection = null;
-    this._reconnecting = false;    
   }
 
   connectedCallback() {
