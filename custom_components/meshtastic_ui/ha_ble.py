@@ -50,9 +50,42 @@ class HaBLEClient:
     # -- async helpers -------------------------------------------------------
 
     def _run_async(self, coro: Any, timeout: float = _ASYNC_TIMEOUT) -> Any:
-        """Run *coro* on HA's event loop from a worker thread."""
+        """Run *coro* on HA's event loop from a worker thread.
+
+        Treats any timeout or transport error as a disconnect: drops the
+        cached client so the watchdog notices and reconnect kicks in. Without
+        this, a stale BleakClient stays in place forever and every subsequent
+        send / read fails the same way.
+        """
         future = asyncio.run_coroutine_threadsafe(coro, self._hass.loop)
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            _LOGGER.warning(
+                "HaBLEClient: BLE op timed out for %s — marking client disconnected",
+                self._address,
+            )
+            future.cancel()
+            self._client = None
+            raise
+        except Exception as err:  # noqa: BLE001
+            # bleak / BlueZ errors that mean the link is down. Mark dead so
+            # the watchdog sees it and the meshtastic library doesn't keep
+            # retrying against a corpse.
+            err_text = str(err)
+            link_dead = (
+                "not connected" in err_text.lower()
+                or "disconnected" in err_text.lower()
+                or "connection" in err_text.lower()
+                or isinstance(err, (OSError, ConnectionError))
+            )
+            if link_dead:
+                _LOGGER.warning(
+                    "HaBLEClient: BLE op failed for %s (%s) — marking client disconnected",
+                    self._address, err_text,
+                )
+                self._client = None
+            raise
 
     # -- public sync interface (matches meshtastic BLEClient) ----------------
 
@@ -85,7 +118,10 @@ class HaBLEClient:
         from bleak import BleakClient
 
         def _on_disconnect(client: Any) -> None:
-            _LOGGER.debug("HaBLEClient: disconnected from %s", self._address)
+            _LOGGER.info("HaBLEClient: link to %s dropped", self._address)
+            # Drop the cached client immediately so subsequent reads/writes
+            # short-circuit instead of trying to use a dead BleakClient.
+            self._client = None
             if self._disconnected_callback:
                 self._disconnected_callback(client)
 
