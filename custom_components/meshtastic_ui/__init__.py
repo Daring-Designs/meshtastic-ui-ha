@@ -222,7 +222,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _migrate_legacy_entity_ids(hass: HomeAssistant, entry_id: str) -> None:
-    """Rename pre-multi-radio sensor unique_ids to include the entry_id."""
+    """Rename pre-multi-radio sensor unique_ids to include the entry_id.
+
+    Idempotent and race-safe: only the entry that finds an entity owning the
+    legacy unique_id will rename it; the second entry's lookup returns None
+    and we skip. Also skips if the per-entry id is already in use (e.g. user
+    already migrated and re-added the integration).
+    """
     from homeassistant.helpers import entity_registry as er
 
     registry = er.async_get(hass)
@@ -232,14 +238,30 @@ async def _migrate_legacy_entity_ids(hass: HomeAssistant, entry_id: str) -> None
     }
     for legacy, new in legacy_to_new.items():
         entity_id = registry.async_get_entity_id("sensor", DOMAIN, legacy)
-        if entity_id:
-            try:
-                registry.async_update_entity(entity_id, new_unique_id=new)
-                _LOGGER.info(
-                    "Migrated sensor unique_id %s -> %s", legacy, new
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("Failed to migrate sensor %s", legacy)
+        if not entity_id:
+            continue
+        # If something else already owns the new unique_id, our rename would
+        # raise — skip silently. This happens when two entries load
+        # concurrently and both find the legacy id; only one wins.
+        if registry.async_get_entity_id("sensor", DOMAIN, new):
+            _LOGGER.debug(
+                "Skipping legacy sensor migration %s -> %s (target already in use)",
+                legacy, new,
+            )
+            continue
+        try:
+            registry.async_update_entity(entity_id, new_unique_id=new)
+            _LOGGER.info(
+                "Migrated sensor unique_id %s -> %s", legacy, new
+            )
+        except ValueError as err:
+            # Race: another setup raced us and claimed the new id between
+            # our check and the rename. Not actionable — log at debug.
+            _LOGGER.debug(
+                "Sensor migration %s -> %s lost the race: %s", legacy, new, err
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Failed to migrate sensor %s", legacy)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
