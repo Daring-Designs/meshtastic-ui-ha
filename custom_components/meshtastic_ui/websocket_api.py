@@ -165,11 +165,7 @@ async def ws_radios(
             continue
         conn = data.get("connection")
         config = data.get("config", {})
-        address = (
-            config.get("ble_address")
-            or config.get("tcp_hostname")
-            or config.get("serial_dev_path")
-        )
+        address = config.get("tcp_hostname") or config.get("serial_dev_path")
 
         # Pull the radio's user-set name from the connected interface.
         long_name = None
@@ -182,8 +178,8 @@ async def ws_radios(
             except Exception:  # noqa: BLE001
                 pass
 
-        # last 4 hex of the address (lowercase XX:XX) — works for BLE MACs
-        # and trims hostnames where it doesn't apply.
+        # last 4 hex of the address (lowercase XX:XX) — only meaningful for
+        # MAC-shaped addresses; returns None for hostnames.
         last4 = _format_address_last4(address)
 
         # Best-effort label: longName > config entry title > generic.
@@ -622,15 +618,10 @@ async def ws_send_message(
         )
     except Exception as err:  # noqa: BLE001
         # Any send failure on a radio means the link is unreliable right now —
-        # kick a forced reconnect so the next attempt has a fresh interface,
-        # and surface a clean message to the UI rather than the meshtastic
-        # library's misleading "did you enter the pairing PIN" boilerplate
-        # (which gets raised on _every_ BLE write failure regardless of cause).
+        # kick a forced reconnect so the next attempt has a fresh interface.
         err_text = str(err) or err.__class__.__name__
         link_down_signals = (
             "Not connected",
-            "BLEError",
-            "PIN",
             "ConnectionError",
             "TimeoutError",
             "No connection",
@@ -638,7 +629,6 @@ async def ws_send_message(
         )
         looks_like_link_down = (
             any(s in err_text for s in link_down_signals)
-            or "BLE" in type(err).__name__
             or "Connection" in type(err).__name__
         )
         if looks_like_link_down:

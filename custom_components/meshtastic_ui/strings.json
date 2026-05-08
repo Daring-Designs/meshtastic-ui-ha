@@ -1,6 +1,6 @@
 {
   "config": {
-    "flow_title": "{name} {last4} — {address} ({rssi})",
+    "flow_title": "{name} — {address}",
     "step": {
       "user": {
         "title": "Meshtastic UI",
@@ -24,33 +24,13 @@
           "serial_dev_path": "Device path"
         }
       },
-      "ble": {
-        "title": "Bluetooth Connection",
-        "description": "Select a discovered Meshtastic radio or enter a BLE address manually.",
-        "data": {
-          "ble_address": "BLE device"
-        }
-      },
-      "ble_manual": {
-        "title": "Bluetooth Connection",
-        "description": "No Meshtastic radios were discovered. Enter the BLE address manually.",
-        "data": {
-          "ble_address": "BLE address"
-        }
-      },
-      "bluetooth_confirm": {
-        "title": "Set up Meshtastic radio",
-        "description": "A Meshtastic radio was discovered via Bluetooth:\n\n**{name}**\n`{address}`\n\nSignal: {rssi}\n\nBLE MAC ends in **{last4}** — this is usually one byte off from the short name shown on the radio's screen because ESP32 chips use a different MAC for BLE than for the node ID (BLE = WiFi MAC + 1). Use signal strength to confirm which physical radio this is: move closer to one and refresh the Discovered card; the closer device will show stronger signal.\n\nDo you want to set it up?"
-      },
       "zeroconf_confirm": {
         "title": "Set up Meshtastic radio",
         "description": "A Meshtastic radio was discovered on the network:\n\n**{name}**\n`{host}:{port}`\n\nDo you want to set it up?"
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on.",
-      "ble_unreachable": "Home Assistant's Bluetooth stack can't reach that device. Ensure a Bluetooth adapter or proxy is in range.",
-      "not_meshtastic": "Connected, but that device doesn't expose the Meshtastic BLE service. Double-check the address."
+      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on."
     },
     "abort": {
       "already_configured": "Meshtastic UI is already configured."

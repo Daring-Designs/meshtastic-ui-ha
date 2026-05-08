@@ -2,11 +2,11 @@
 
 > **Beta / Work in Progress** — This integration is under active development. Expect rough edges and breaking changes. If you run into issues, please [open an issue on GitHub](https://github.com/Daring-Designs/meshtastic-ui-ha/issues).
 
-A companion HACS integration that adds a full-featured dashboard for your [Meshtastic](https://meshtastic.org) mesh network in Home Assistant. Connects directly to your radio via TCP, Serial, or Bluetooth and provides messaging, node management, mapping, and complete radio configuration — all from the HA sidebar.
+A companion HACS integration that adds a full-featured dashboard for your [Meshtastic](https://meshtastic.org) mesh network in Home Assistant. Connects directly to your radio via TCP or Serial and provides messaging, node management, mapping, and complete radio configuration — all from the HA sidebar.
 
 ## Built With
 
-- **Backend** — Python, using the [meshtastic](https://pypi.org/project/meshtastic/) library for all radio communication (TCP, Serial, BLE). Integrates with Home Assistant via its WebSocket API and async event system.
+- **Backend** — Python, using the [meshtastic](https://pypi.org/project/meshtastic/) library for all radio communication (TCP, Serial). Integrates with Home Assistant via its WebSocket API and async event system.
 - **Frontend** — Vanilla ES modules built with [Lit](https://lit.dev/) 4.x web components, [Leaflet](https://leafletjs.com/) for mapping, and [D3](https://d3js.org/) for real-time charts. Vendor libraries are bundled via a build step; app-level JS is served directly by Home Assistant.
 
 ## Why Connect a Radio to Home Assistant?
@@ -131,14 +131,13 @@ All data persists across Home Assistant restarts: messages (channel and DM), nod
 |------|---------|
 | **TCP/IP** | Hostname + port (default 4403) |
 | **Serial** | USB device path (auto-detected) |
-| **Bluetooth** | BLE MAC address |
 
 Auto-reconnects with exponential backoff (5s to 5min) on connection loss.
 
 ## Prerequisites
 
 - Home Assistant 2024.1+
-- A Meshtastic radio accessible via TCP, Serial, or BLE
+- A Meshtastic radio accessible via TCP or Serial
 - The `meshtastic` Python package (installed automatically as a dependency)
 
 ## Installation

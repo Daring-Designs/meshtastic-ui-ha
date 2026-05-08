@@ -137,7 +137,6 @@ class ConnectionType(enum.StrEnum):
 
     TCP = "tcp"
     SERIAL = "serial"
-    BLE = "ble"
 
 
 class ConnectionState(enum.StrEnum):
@@ -160,7 +159,6 @@ class MeshtasticConnection:
         hostname: str | None = None,
         port: int = 4403,
         serial_path: str | None = None,
-        ble_address: str | None = None,
     ) -> None:
         """Initialize the connection manager."""
         self._hass = hass
@@ -168,7 +166,6 @@ class MeshtasticConnection:
         self._hostname = hostname
         self._port = port
         self._serial_path = serial_path
-        self._ble_address = ble_address
 
         self._interface: Any | None = None
         self._state = ConnectionState.DISCONNECTED
@@ -771,13 +768,6 @@ class MeshtasticConnection:
 
             return SerialInterface(devPath=self._serial_path)
 
-        if self._connection_type == ConnectionType.BLE:
-            from .ha_ble import create_ha_ble_interface
-
-            return create_ha_ble_interface(
-                hass=self._hass, address=self._ble_address
-            )
-
         raise ValueError(f"Unknown connection type: {self._connection_type}")
 
     def _teardown_pubsub_listeners(self) -> None:
@@ -933,21 +923,6 @@ class MeshtasticConnection:
                 return False
             if hasattr(iface, "_isConnected") and not iface._isConnected:
                 return False
-            # BLE-specific: meshtastic's BLEInterface holds a `client` attribute
-            # which wraps our HaBLEClient. When the BLE link drops silently
-            # (phone re-pairs, out of range, etc.), HaBLEClient resets its
-            # underlying _client to None — but the meshtastic library's
-            # `_isConnected` flag often stays True, so we'd never trigger
-            # reconnect and every send would fail with "Not connected".
-            ble_client = getattr(iface, "client", None)
-            if ble_client is not None:
-                inner = getattr(ble_client, "_client", "missing")
-                if inner is None:
-                    return False
-                # BleakClient.is_connected is the canonical answer when present.
-                is_connected = getattr(inner, "is_connected", None)
-                if is_connected is False:
-                    return False
             return True
         except Exception:  # noqa: BLE001
             return False

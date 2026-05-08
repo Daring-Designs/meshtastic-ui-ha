@@ -49,8 +49,4 @@ CONF_CONNECTION_TYPE = "connection_type"
 CONF_TCP_HOSTNAME = "tcp_hostname"
 CONF_TCP_PORT = "tcp_port"
 CONF_SERIAL_DEV_PATH = "serial_dev_path"
-CONF_BLE_ADDRESS = "ble_address"
 DEFAULT_TCP_PORT = 4403
-
-# Meshtastic BLE service UUID (advertised by all Meshtastic radios)
-MESHTASTIC_BLE_SERVICE_UUID = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"

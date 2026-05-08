@@ -16,7 +16,6 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .connection import ConnectionState, ConnectionType, MeshtasticConnection
 from .const import (
-    CONF_BLE_ADDRESS,
     CONF_CONNECTION_TYPE,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
@@ -317,12 +316,6 @@ def _create_connection(
             hass,
             conn_type,
             serial_path=config_data[CONF_SERIAL_DEV_PATH],
-        )
-    if conn_type == ConnectionType.BLE:
-        return MeshtasticConnection(
-            hass,
-            conn_type,
-            ble_address=config_data[CONF_BLE_ADDRESS],
         )
 
     raise ValueError(f"Unknown connection type: {conn_type}")
