@@ -33,6 +33,9 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_name: str | None = None
         self._discovered_host: str | None = None
         self._discovered_port: int | None = None
+        self._proxy_entry_id: str | None = None
+        self._proxy_title: str | None = None
+        self._proxy_port: int | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
@@ -112,6 +115,46 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
                 "port": str(self._discovered_port),
             },
             errors=errors,
+        )
+
+    async def async_step_integration_discovery(
+        self, discovery_info: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle discovery of a meshtastic integration TCP proxy."""
+        self._proxy_entry_id = discovery_info["entry_id"]
+        self._proxy_title = discovery_info["title"]
+        self._proxy_port = discovery_info["port"]
+
+        await self.async_set_unique_id(f"proxy:{self._proxy_entry_id}")
+        self._abort_if_unique_id_configured()
+
+        self.context["title_placeholders"] = {
+            "name": self._proxy_title,
+            "address": f"127.0.0.1:{self._proxy_port}",
+        }
+
+        return await self.async_step_integration_discovery_confirm()
+
+    async def async_step_integration_discovery_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm setting up via the meshtastic integration proxy."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title=f"Meshtastic ({self._proxy_title} proxy)",
+                data={
+                    CONF_CONNECTION_TYPE: "tcp",
+                    CONF_TCP_HOSTNAME: "127.0.0.1",
+                    CONF_TCP_PORT: self._proxy_port,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="integration_discovery_confirm",
+            description_placeholders={
+                "name": self._proxy_title,
+                "port": str(self._proxy_port),
+            },
         )
 
     async def async_step_tcp(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

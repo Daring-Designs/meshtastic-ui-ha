@@ -8,7 +8,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -60,7 +60,48 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Backwards-compat: older code paths read hass.data[DOMAIN]["entries"].
     if "entries" not in hass.data[DOMAIN]:
         hass.data[DOMAIN]["entries"] = {}
+
+    # Start an integration-discovery flow for every meshtastic TCP proxy
+    # that is already configured and enabled.
+    await _async_trigger_proxy_discovery(hass)
     return True
+
+
+async def _async_trigger_proxy_discovery(hass: HomeAssistant) -> None:
+    """Fire an integration-discovery config flow for each active meshtastic TCP proxy."""
+    for entry in hass.config_entries.async_entries("meshtastic"):
+        proxy = entry.options.get("tcp_proxy", {})
+        if not proxy.get("enable"):
+            continue
+
+        port = proxy.get("port", 4403)
+        unique_id = f"proxy:{entry.entry_id}"
+
+        # Skip if a meshtastic_ui entry is already using this proxy.
+        if any(e.unique_id == unique_id for e in hass.config_entries.async_entries(DOMAIN)):
+            continue
+
+        # Skip if a discovery flow for this proxy is already in progress.
+        if any(
+            flow["context"].get("proxy_entry_id") == entry.entry_id
+            for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+        ):
+            continue
+
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={
+                    "source": SOURCE_INTEGRATION_DISCOVERY,
+                    "proxy_entry_id": entry.entry_id,
+                },
+                data={
+                    "entry_id": entry.entry_id,
+                    "title": entry.title,
+                    "port": port,
+                },
+            )
+        )
 
 
 def _get_entry_data(
