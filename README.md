@@ -134,6 +134,20 @@ All data persists across Home Assistant restarts: messages (channel and DM), nod
 
 Auto-reconnects with exponential backoff (5s to 5min) on connection loss.
 
+## Multiple Radios
+
+You can add more than one radio by running the **Add Integration** flow once per device. Each connection becomes its own config entry with an independent dashboard, message log, node database, and storage file — there is no shared "merged mesh" view across radios.
+
+**For most users, one connected radio is enough.** A single gateway already records every packet it hears over the air, including messages sent by your other radios on the same mesh. Adding a second radio as a separate integration mostly just gives you two copies of the same log.
+
+It's worth running two when the radios actually hear different things:
+
+- **Different physical locations** — e.g. one in the house, one in a detached garage or remote shed, covering different parts of the mesh.
+- **Different channels or PSKs** — a radio only decodes channels it has keys for, so two radios on different channel sets will log non-overlapping traffic.
+- **Different roles or regions** — e.g. a CLIENT on one mesh and a ROUTER on another.
+
+Storage is isolated per entry, so dashboards and history never bleed between radios, and removing one integration instance won't affect the other's data.
+
 ## Prerequisites
 
 - Home Assistant 2024.1+
