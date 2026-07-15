@@ -425,6 +425,7 @@ class MeshtasticConnection:
 
         def _read() -> dict[str, Any]:
             node = iface.localNode
+            my_node = iface.getMyNodeInfo() or {}
             result: dict[str, Any] = {}
 
             # Local config sections.
@@ -455,8 +456,23 @@ class MeshtasticConnection:
                 channels.append(_message_to_dict(ch, preserving_proto_field_name=True))
             result["channels"] = channels
 
+            # Fixed-position coordinates are not part of PositionConfig —
+            # they live on the node's own position record, so merge them
+            # into the position section for the UI to display.
+            position_cfg = result["local_config"].get("position")
+            if position_cfg is not None:
+                node_pos = my_node.get("position") or {}
+                lat = node_pos.get("latitude")
+                lng = node_pos.get("longitude")
+                if lat is None:
+                    lat = (node_pos.get("latitudeI") or node_pos.get("latitude_i") or 0) * 1e-7
+                if lng is None:
+                    lng = (node_pos.get("longitudeI") or node_pos.get("longitude_i") or 0) * 1e-7
+                position_cfg["fixed_lat"] = lat
+                position_cfg["fixed_lng"] = lng
+                position_cfg["fixed_altitude"] = node_pos.get("altitude", 0)
+
             # Owner info.
-            my_node = iface.getMyNodeInfo() or {}
             result["owner"] = my_node.get("user", {})
 
             # Device metadata.
@@ -518,7 +534,10 @@ class MeshtasticConnection:
                 _apply_protobuf_values(config_obj, remaining, section)
                 node.writeConfig(section)
 
-            if fixed_position is True:
+            # Only push coordinates when real values were provided — a
+            # payload without them (0, 0) would silently overwrite a
+            # position already stored on the radio.
+            if fixed_position is True and (fixed_lat or fixed_lng):
                 node.setFixedPosition(
                     float(fixed_lat),
                     float(fixed_lng),
