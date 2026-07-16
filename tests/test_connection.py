@@ -84,6 +84,88 @@ class TestGetConfigFixedPosition:
         assert position["fixed_altitude"] == 0
 
 
+class TestSplitMqttAddress:
+    """_split_mqtt_address must extract host:port and default to 1883."""
+
+    def test_plain_host(self):
+        assert connection_mod._split_mqtt_address("mqtt.meshtastic.org") == (
+            "mqtt.meshtastic.org", 1883,
+        )
+
+    def test_host_with_port(self):
+        assert connection_mod._split_mqtt_address("broker.local:8883") == (
+            "broker.local", 8883,
+        )
+
+    def test_bare_ipv6_left_intact(self):
+        assert connection_mod._split_mqtt_address("2001:db8::1") == (
+            "2001:db8::1", 1883,
+        )
+
+    def test_bracketed_ipv6_with_port(self):
+        assert connection_mod._split_mqtt_address("[::1]:8883") == ("[::1]", 8883)
+
+    def test_out_of_range_port_left_intact(self):
+        assert connection_mod._split_mqtt_address("host:99999") == (
+            "host:99999", 1883,
+        )
+
+
+class TestConfigMqttPort:
+    """The MQTT port must round-trip through the address string."""
+
+    async def test_get_config_splits_port_from_address(self, conn, monkeypatch):
+        iface = conn._interface
+        iface.localNode.channels = []
+        iface.metadata = {}
+        iface.getMyNodeInfo.return_value = {}
+        monkeypatch.setattr(
+            connection_mod,
+            "_message_to_dict",
+            lambda proto, **kwargs: {"mqtt": {"address": "broker.local:8883"}},
+        )
+        monkeypatch.setattr(
+            connection_mod, "_fill_enum_defaults", lambda proto, d: None
+        )
+
+        result = await conn.async_get_config()
+
+        mqtt = result["module_config"]["mqtt"]
+        assert mqtt["address"] == "broker.local"
+        assert mqtt["port"] == 8883
+
+    async def test_set_config_folds_port_into_address(self, conn, monkeypatch):
+        applied = {}
+        monkeypatch.setattr(
+            connection_mod,
+            "_apply_protobuf_values",
+            lambda obj, values, ctx: applied.update(values),
+        )
+
+        await conn.async_set_config(
+            "mqtt", {"address": "broker.local", "port": 8883, "enabled": True}
+        )
+
+        assert applied["address"] == "broker.local:8883"
+        assert "port" not in applied
+        conn._interface.localNode.writeConfig.assert_called_once_with("mqtt")
+
+    async def test_set_config_default_port_omitted_from_address(self, conn, monkeypatch):
+        applied = {}
+        monkeypatch.setattr(
+            connection_mod,
+            "_apply_protobuf_values",
+            lambda obj, values, ctx: applied.update(values),
+        )
+
+        await conn.async_set_config(
+            "mqtt", {"address": "broker.local:8883", "port": 1883}
+        )
+
+        assert applied["address"] == "broker.local"
+        assert "port" not in applied
+
+
 class TestSetConfigFixedPosition:
     """async_set_config must never overwrite the radio's position with zeros."""
 

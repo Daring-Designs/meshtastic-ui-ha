@@ -88,6 +88,22 @@ def _apply_protobuf_values(
                 )
 
 
+def _split_mqtt_address(address: str) -> tuple[str, int]:
+    """Split an MQTT broker address into (host, port).
+
+    The MQTT module config has no port field — firmware expects the port
+    inside the address string as ``host:port``, defaulting to 1883.
+    Bare IPv6 addresses (``2001:db8::1``) are left intact; bracketed
+    ones (``[::1]:8883``) split normally.
+    """
+    host, sep, port_str = address.rpartition(":")
+    if sep and port_str.isdigit() and not host.endswith(":"):
+        port = int(port_str)
+        if 1 <= port <= 65535:
+            return host, port
+    return address, 1883
+
+
 def _message_to_dict(proto_obj: Any, **kwargs: Any) -> dict[str, Any]:
     """Wrap MessageToDict with protobuf version compatibility.
 
@@ -456,6 +472,14 @@ class MeshtasticConnection:
                 channels.append(_message_to_dict(ch, preserving_proto_field_name=True))
             result["channels"] = channels
 
+            # The MQTT config has no port field — the port is embedded in
+            # the address string, so split it out for the UI's Port field.
+            mqtt_cfg = result["module_config"].get("mqtt")
+            if mqtt_cfg is not None:
+                host, port = _split_mqtt_address(str(mqtt_cfg.get("address") or ""))
+                mqtt_cfg["address"] = host
+                mqtt_cfg["port"] = port
+
             # Fixed-position coordinates are not part of PositionConfig —
             # they live on the node's own position record, so merge them
             # into the position section for the UI to display.
@@ -529,6 +553,20 @@ class MeshtasticConnection:
                 fixed_altitude = remaining.pop("fixed_altitude", 0) or 0
                 if "fixed_position" in remaining:
                     fixed_position = remaining.pop("fixed_position")
+
+            # The MQTT config has no port field — fold the UI's Port value
+            # back into the address string the firmware expects.
+            if section == "mqtt" and "port" in remaining:
+                port_val = remaining.pop("port")
+                if "address" in remaining:
+                    host, _ = _split_mqtt_address(str(remaining["address"]).strip())
+                    try:
+                        port_num = int(port_val)
+                    except (TypeError, ValueError):
+                        port_num = 1883
+                    remaining["address"] = (
+                        f"{host}:{port_num}" if host and port_num != 1883 else host
+                    )
 
             if remaining:
                 _apply_protobuf_values(config_obj, remaining, section)
