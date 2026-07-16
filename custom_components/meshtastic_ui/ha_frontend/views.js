@@ -2875,16 +2875,19 @@ class MeshHorizonChart extends LitElement {
     ctx.textAlign = "center";
     const bucketSec = this.bucketInterval;
     const totalVisibleSec = visible * bucketSec;
-    const gridSteps = [300, 600, 1800, 3600, 7200, 14400, 28800, 86400];
+    const gridSteps = [300, 600, 1800, 3600, 7200, 14400, 21600, 43200, 86400];
     const idealStep = totalVisibleSec / 6;
     const gridStep = gridSteps.find((s) => s >= idealStep) || gridSteps[gridSteps.length - 1];
     for (let s = gridStep; s < totalVisibleSec; s += gridStep) {
       const idx = visible - s / bucketSec;
       if (idx < 0) break;
       const x = idx * colW;
+      // Pick the unit from the grid step (not the offset) so labels stay
+      // integer multiples — an 8h step reads -8h/-16h/-24h/-32h instead
+      // of -8h/-16h/-1d/-1.3333333333333333d when it crosses a day.
       let label;
-      if (s >= 86400) label = `-${s / 86400}d`;
-      else if (s >= 3600) label = `-${s / 3600}h`;
+      if (gridStep >= 86400) label = `-${s / 86400}d`;
+      else if (gridStep >= 3600) label = `-${s / 3600}h`;
       else label = `-${s / 60}m`;
       ctx.fillStyle = "rgba(128,128,128,0.4)";
       ctx.fillRect(x, 0, 1, h);
