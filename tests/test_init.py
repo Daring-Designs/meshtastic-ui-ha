@@ -88,6 +88,14 @@ class TestExtractNodeData:
         data = _extract_node_data(node)
         assert "2025-06-01" in data["_last_seen"]
 
+    def test_via_mqtt(self):
+        data = _extract_node_data({"viaMqtt": True})
+        assert data["via_mqtt"] is True
+
+    def test_via_mqtt_absent(self):
+        data = _extract_node_data({"snr": 1.0})
+        assert "via_mqtt" not in data
+
     def test_empty_node(self):
         data = _extract_node_data({})
         assert "_last_seen" in data

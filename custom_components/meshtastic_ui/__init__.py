@@ -410,6 +410,9 @@ def _register_radio_callbacks(
                 node_update["hops"] = packet["hopsAway"]
             if "rssi" in packet:
                 node_update["rssi"] = packet["rssi"]
+            # Reflects the latest packet's transport: flips to False the
+            # moment the node is heard over RF again.
+            node_update["via_mqtt"] = bool(packet.get("viaMqtt", False))
             store.update_node(sender_id, node_update)
 
             # Auto-request node info for nameless nodes (with cooldown).
@@ -862,6 +865,8 @@ def _extract_node_data(node: dict) -> dict[str, Any]:
         data["snr"] = node["snr"]
     if node.get("hopsAway") is not None:
         data["hops"] = node["hopsAway"]
+    if node.get("viaMqtt") is not None:
+        data["via_mqtt"] = node["viaMqtt"]
     if node.get("lastHeard") is not None:
         try:
             data["_last_seen"] = datetime.fromtimestamp(

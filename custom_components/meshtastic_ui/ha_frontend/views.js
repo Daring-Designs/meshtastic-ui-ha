@@ -1213,6 +1213,7 @@ export class MeshNodesTab extends LitElement {
     this._filterBatteryMin = 0;
     this._filterHopsMax = null;
     this._filterFavorites = false;
+    this._filterSource = "all";
     this._filtersExpanded = false;
     this._sortColumn = "name";
     this._sortAsc = true;
@@ -1362,6 +1363,13 @@ export class MeshNodesTab extends LitElement {
           margin-left: 6px; vertical-align: middle;
         }
 
+        .mqtt-badge {
+          display: inline-block; padding: 1px 6px;
+          border-radius: 8px; font-size: 10px; font-weight: 600;
+          background: var(--secondary-text-color, #888); color: var(--card-background-color, #fff);
+          margin-left: 6px; vertical-align: middle;
+        }
+
         .node-name-cell { display: flex; align-items: center; gap: 6px; }
 
         .action-btn.danger {
@@ -1450,6 +1458,15 @@ export class MeshNodesTab extends LitElement {
                 style="width: 70px;" />
             </div>
             <div class="filter-group">
+              <label>Source</label>
+              <select .value=${this._filterSource}
+                @change=${(e) => { this._filterSource = e.target.value; this._saveFilterState(); this.requestUpdate(); }}>
+                <option value="all">RF + MQTT</option>
+                <option value="rf">RF Only</option>
+                <option value="mqtt">MQTT Only</option>
+              </select>
+            </div>
+            <div class="filter-group">
               <label>Show</label>
               <select .value=${this._filterFavorites ? "favorites" : "all"}
                 @change=${(e) => { this._filterFavorites = e.target.value === "favorites"; this._saveFilterState(); this.requestUpdate(); }}>
@@ -1523,7 +1540,7 @@ export class MeshNodesTab extends LitElement {
                     </td>
                     <td>
                       <span class="node-name-cell">
-                        ${node.name || nodeId}${isIgn ? html`<span class="ignored-badge">IGN</span>` : ""}
+                        ${node.name || nodeId}${node.via_mqtt ? html`<span class="mqtt-badge">MQTT</span>` : ""}${isIgn ? html`<span class="ignored-badge">IGN</span>` : ""}
                       </span>
                     </td>
                     <td>${node.snr ?? "\u2014"}</td>
@@ -1584,6 +1601,13 @@ export class MeshNodesTab extends LitElement {
       });
     }
 
+    if (this._filterSource !== "all") {
+      // Nodes that predate via_mqtt tracking have no flag — treat as RF.
+      entries = entries.filter(([, node]) =>
+        this._filterSource === "mqtt" ? node.via_mqtt === true : node.via_mqtt !== true
+      );
+    }
+
     const col = this._sortColumn;
     const asc = this._sortAsc;
     return entries.sort(([, a], [, b]) => {
@@ -1623,6 +1647,7 @@ export class MeshNodesTab extends LitElement {
         if (s.filterBatteryMin != null) this._filterBatteryMin = s.filterBatteryMin;
         if (s.filterHopsMax !== undefined) this._filterHopsMax = s.filterHopsMax;
         if (s.filterFavorites != null) this._filterFavorites = s.filterFavorites;
+        if (s.filterSource != null) this._filterSource = s.filterSource;
         if (s.filtersExpanded != null) this._filtersExpanded = s.filtersExpanded;
         if (s.sortColumn != null) this._sortColumn = s.sortColumn;
         if (s.sortAsc != null) this._sortAsc = s.sortAsc;
@@ -1637,6 +1662,7 @@ export class MeshNodesTab extends LitElement {
         filterBatteryMin: this._filterBatteryMin,
         filterHopsMax: this._filterHopsMax,
         filterFavorites: this._filterFavorites,
+        filterSource: this._filterSource,
         filtersExpanded: this._filtersExpanded,
         sortColumn: this._sortColumn,
         sortAsc: this._sortAsc,
@@ -1699,6 +1725,7 @@ export class MeshNodesTab extends LitElement {
                 ${renderMetric("SNR", node.snr != null ? Math.round(node.snr * 10) / 10 : null, " dB")}
                 ${renderMetric("RSSI", node.rssi != null ? Math.round(node.rssi) : null, " dBm")}
                 ${renderMetric("Hops", node.hops)}
+                ${renderMetric("Heard Via", node.via_mqtt != null ? (node.via_mqtt ? "MQTT" : "Radio") : null)}
                 ${renderMetric("Air Util TX", node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
                 ${renderMetric("Ch. Util", node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
               </div>
@@ -1836,6 +1863,7 @@ export class MeshMapTab extends LitElement {
     this._snrLineLayer = null;
     this._tracerouteLayer = null;
     this._showNodes = true;
+    this._hideMqttNodes = localStorage.getItem("meshtastic_map_hide_mqtt") === "1";
     this._showWaypoints = true;
     this._showSnrLines = false;
     this._showTraceroutes = false;
@@ -2099,6 +2127,7 @@ export class MeshMapTab extends LitElement {
     }
 
     const nodesWithPosition = Object.values(this.nodes).filter((n) => {
+      if (this._hideMqttNodes && n.via_mqtt) return false;
       const lat = parseFloat(n.latitude);
       const lon = parseFloat(n.longitude);
       return !isNaN(lat) && !isNaN(lon) && !(lat === 0 && lon === 0);
@@ -2128,6 +2157,9 @@ export class MeshMapTab extends LitElement {
             @click=${() => this._toggleLayer("snr")}>SNR Lines${snrCount > 0 ? ` (${snrCount})` : ""}</button>
           <button class="layer-btn ${this._showTraceroutes ? "active" : ""}"
             @click=${() => this._toggleLayer("traceroutes")}>Routes${routeCount > 0 ? ` (${routeCount})` : ""}</button>
+          <button class="layer-btn ${this._hideMqttNodes ? "active" : ""}"
+            @click=${this._toggleHideMqtt}
+            title="Hide nodes only heard via MQTT">Hide MQTT</button>
           <button class="locate-btn" @click=${() => this._locateUser()} title="Find my location">
             \u25CE Locate
           </button>
@@ -2316,6 +2348,14 @@ export class MeshMapTab extends LitElement {
     this._mapInstance.locate({ setView: true, maxZoom: 16 });
   }
 
+  _toggleHideMqtt() {
+    this._hideMqttNodes = !this._hideMqttNodes;
+    localStorage.setItem("meshtastic_map_hide_mqtt", this._hideMqttNodes ? "1" : "0");
+    this._updateNodeLayer();
+    this._updateSnrLines();
+    this.requestUpdate();
+  }
+
   _toggleAddWaypoint() {
     this._addingWaypoint = !this._addingWaypoint;
   }
@@ -2468,6 +2508,7 @@ export class MeshMapTab extends LitElement {
     const bounds = [];
 
     for (const [nodeId, node] of Object.entries(this.nodes)) {
+      if (this._hideMqttNodes && node.via_mqtt) continue;
       const lat = parseFloat(node.latitude);
       const lon = parseFloat(node.longitude);
       if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
@@ -2549,6 +2590,7 @@ export class MeshMapTab extends LitElement {
     // Get positions for all nodes
     const nodePositions = {};
     for (const [nodeId, node] of Object.entries(this.nodes)) {
+      if (this._hideMqttNodes && node.via_mqtt) continue;
       const lat = parseFloat(node.latitude);
       const lon = parseFloat(node.longitude);
       if (!isNaN(lat) && !isNaN(lon) && !(lat === 0 && lon === 0)) {
