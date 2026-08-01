@@ -174,7 +174,7 @@ class TestWsSendMessage:
         await _ws_send_message(hass, conn, msg)
 
         mock_connection.async_send_text.assert_called_once_with(
-            "hello", destination_id=None, channel_index=0
+            "hello", destination_id=None, channel_index=0, reply_id=None
         )
         conn.send_result.assert_called_once()
         result = conn.send_result.call_args[0][1]
@@ -193,7 +193,7 @@ class TestWsSendMessage:
         await _ws_send_message(hass, conn, msg)
 
         mock_connection.async_send_text.assert_called_once_with(
-            "hey", destination_id="!aabbccdd", channel_index=0
+            "hey", destination_id="!aabbccdd", channel_index=0, reply_id=None
         )
         msgs = store.get_dm_messages("!aabbccdd")
         assert len(msgs) == 1

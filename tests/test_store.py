@@ -253,7 +253,7 @@ class TestNotificationPrefs:
     def test_defaults(self, store: MeshtasticUiStore):
         prefs = store.get_notification_prefs()
         assert prefs["enabled"] is False
-        assert prefs["service"] == "notify.notify"
+        assert prefs["service"] == "persistent_notification.create"
         assert prefs["filter"] == "all"
 
     def test_set_prefs(self, store: MeshtasticUiStore):
@@ -261,7 +261,7 @@ class TestNotificationPrefs:
         prefs = store.get_notification_prefs()
         assert prefs["enabled"] is True
         assert prefs["filter"] == "dm"
-        assert prefs["service"] == "notify.notify"  # unchanged
+        assert prefs["service"] == "persistent_notification.create"  # unchanged
 
 
 # ---------------------------------------------------------------------------
