@@ -177,12 +177,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for k in _PACKET_TYPE_KEYS:
             pt[k].append(pta[k])
         ts["packetTypeAccum"] = {k: 0 for k in _PACKET_TYPE_KEYS}
-        # Prune stale pending_acks (older than 5 minutes).
+        # Resolve pending_acks that never got a routing ack (older than
+        # 2 minutes) to "timeout" so the UI doesn't show an hourglass forever.
         now = time.time()
         pending = ed.get("pending_acks", {})
-        stale = [k for k, v in pending.items() if now - v.get("_ts", 0) > 300]
-        for k in stale:
-            del pending[k]
+        stale = [k for k, v in pending.items() if now - v.get("_ts", 0) > 120]
+        for packet_id in stale:
+            msg_info = pending.pop(packet_id)
+            ed["store"].update_message_status(packet_id, "timeout")
+            async_dispatcher_send(
+                hass,
+                SIGNAL_DELIVERY_STATUS,
+                {
+                    "entry_id": entry_id,
+                    "packet_id": packet_id,
+                    "status": "timeout",
+                    "error": None,
+                    **msg_info,
+                },
+            )
 
     unsub_ts = async_track_time_interval(
         hass, _flush_timeseries, timedelta(seconds=TS_FLUSH_SECONDS)
@@ -624,17 +637,23 @@ def _handle_delivery_ack(hass: HomeAssistant, entry_id: str, packet: dict) -> No
     ed = _get_entry_data(hass, entry_id)
     if ed is None:
         return
-    pending = ed.get("pending_acks", {})
-    if request_id not in pending:
-        return
-
-    msg_info = pending.pop(request_id)
     error_reason = routing.get("errorReason")
 
     if error_reason and error_reason != "NONE":
         status = "failed"
     else:
         status = "delivered"
+
+    stored = ed["store"].update_message_status(request_id, status, error_reason)
+
+    pending = ed.get("pending_acks", {})
+    if request_id in pending:
+        msg_info = pending.pop(request_id)
+    elif stored:
+        # Late ack for a message already pruned as timeout — still forward it.
+        msg_info = {}
+    else:
+        return
 
     # Count outgoing packets for time-series.
     ed["ts"]["accumulators"]["packetTx"] += 1
@@ -814,6 +833,7 @@ def _sync_nodes_from_radio(
         node_num = my_info.get("num")
         if node_num is not None:
             ts["local_node_num"] = node_num
+            _migrate_entry_unique_id(hass, entry_id, node_num)
         metrics = my_info.get("deviceMetrics", {})
         if metrics.get("channelUtilization") is not None:
             ts["snapshots"]["channelUtil"] = metrics["channelUtilization"]
@@ -821,6 +841,37 @@ def _sync_nodes_from_radio(
             ts["snapshots"]["airtimeTx"] = metrics["airUtilTx"]
         if metrics.get("batteryLevel") is not None:
             ts["snapshots"]["battery"] = min(metrics["batteryLevel"], 100)
+
+
+def _migrate_entry_unique_id(
+    hass: HomeAssistant, entry_id: str, node_num: int
+) -> None:
+    """Re-key a TCP entry's unique_id from its IP to the radio's node ID.
+
+    Legacy entries used tcp:{host}, which breaks recognition when DHCP
+    hands the radio a new address. The node ID is stable across IP changes
+    and lets zeroconf rediscovery update the host on the existing entry.
+    """
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.data.get(CONF_CONNECTION_TYPE) != "tcp":
+        return
+    node_id = _num_to_id(node_num)
+    if entry.unique_id == node_id:
+        return
+    if any(
+        other.unique_id == node_id and other.entry_id != entry_id
+        for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        _LOGGER.warning(
+            "Not migrating unique_id for %s: another entry already uses %s",
+            entry.title,
+            node_id,
+        )
+        return
+    _LOGGER.info(
+        "Migrating entry %s unique_id %s -> %s", entry.title, entry.unique_id, node_id
+    )
+    hass.config_entries.async_update_entry(entry, unique_id=node_id)
 
 
 def _extract_node_data(node: dict) -> dict[str, Any]:

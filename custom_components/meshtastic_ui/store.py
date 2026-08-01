@@ -197,6 +197,23 @@ class MeshtasticUiStore:
         self._messages_today += 1
         self._schedule_save()
 
+    def update_message_status(
+        self, packet_id: int, status: str, error: str | None = None
+    ) -> bool:
+        """Persist a delivery status onto the stored outgoing message.
+
+        Searches recent messages first since acks arrive shortly after send.
+        """
+        for msgs in (*self._channel_messages.values(), *self._dm_messages.values()):
+            for message in reversed(msgs):
+                if message.get("packet_id") == packet_id:
+                    message["status"] = status
+                    if error and error != "NONE":
+                        message["error"] = error
+                    self._schedule_save()
+                    return True
+        return False
+
     def update_node(self, node_id: str, data: dict[str, Any]) -> None:
         """Update or create a node entry."""
         node_id = normalize_node_id(node_id)

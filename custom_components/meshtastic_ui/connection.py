@@ -359,7 +359,9 @@ class MeshtasticConnection:
         iface = self._interface
 
         def _send() -> int | None:
-            kwargs: dict[str, Any] = {"channelIndex": channel_index}
+            # wantAck is required for the firmware to report delivery back
+            # (real ack for DMs, implicit ack on rebroadcast for channels).
+            kwargs: dict[str, Any] = {"channelIndex": channel_index, "wantAck": True}
             if destination_id:
                 kwargs["destinationId"] = destination_id
             if reply_id is not None:
