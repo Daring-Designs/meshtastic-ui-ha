@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -21,6 +22,21 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_NODE_ID_RE = re.compile(r"![0-9a-fA-F]{8}")
+
+
+def _node_id_from_properties(properties: dict[str, Any] | None) -> str | None:
+    """Extract the radio's node ID (!hex) from mDNS TXT records, if advertised."""
+    raw = (properties or {}).get("id")
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="ignore")
+    if not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    if _NODE_ID_RE.fullmatch(raw):
+        return raw.lower()
+    return None
+
 
 class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow for Meshtastic UI integration."""
@@ -33,6 +49,7 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_name: str | None = None
         self._discovered_host: str | None = None
         self._discovered_port: int | None = None
+        self._validated_node_id: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
@@ -62,12 +79,19 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle mDNS/zeroconf discovery of a Meshtastic radio."""
         host = discovery_info.host
-        await self.async_set_unique_id(f"tcp:{host}")
-        self._abort_if_unique_id_configured()
         if discovery_info.type == "_meshtastic._tcp.local.":
             port = discovery_info.port or DEFAULT_TCP_PORT
         else:
             port = DEFAULT_TCP_PORT
+
+        # Prefer the stable node ID from TXT records (newer firmware) over
+        # the IP so a DHCP address change updates the existing entry instead
+        # of rediscovering the radio as a new device.
+        node_id = _node_id_from_properties(discovery_info.properties)
+        await self.async_set_unique_id(node_id or f"tcp:{host}")
+        self._abort_if_unique_id_configured(
+            updates={CONF_TCP_HOSTNAME: host, CONF_TCP_PORT: port}
+        )
 
         self._discovered_host = host
         self._discovered_port = port
@@ -95,6 +119,16 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
             if error:
                 errors["base"] = error
             else:
+                # Older firmware doesn't advertise its node ID over mDNS;
+                # validation just learned it, so re-key before creating.
+                if self._validated_node_id:
+                    await self.async_set_unique_id(self._validated_node_id)
+                    self._abort_if_unique_id_configured(
+                        updates={
+                            CONF_TCP_HOSTNAME: self._discovered_host,
+                            CONF_TCP_PORT: self._discovered_port,
+                        }
+                    )
                 return self.async_create_entry(
                     title=f"Meshtastic ({self._discovered_host})",
                     data={
@@ -126,8 +160,12 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
             if error:
                 errors["base"] = error
             else:
-                await self.async_set_unique_id(f"tcp:{hostname}")
-                self._abort_if_unique_id_configured()
+                await self.async_set_unique_id(
+                    self._validated_node_id or f"tcp:{hostname}"
+                )
+                self._abort_if_unique_id_configured(
+                    updates={CONF_TCP_HOSTNAME: hostname, CONF_TCP_PORT: port}
+                )
                 return self.async_create_entry(
                     title=f"Meshtastic ({hostname})",
                     data={
@@ -185,9 +223,13 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def _async_validate_tcp(self, hostname: str, port: int) -> str | None:
-        """Test a TCP connection. Returns error key or None on success."""
+        """Test a TCP connection. Returns error key or None on success.
+
+        On success, stashes the radio's node ID in self._validated_node_id
+        (None if the radio didn't report one).
+        """
         try:
-            await self.hass.async_add_executor_job(
+            self._validated_node_id = await self.hass.async_add_executor_job(
                 self._test_tcp_connection, hostname, port
             )
         except Exception as err:
@@ -207,12 +249,20 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         return None
 
     @staticmethod
-    def _test_tcp_connection(hostname: str, port: int) -> None:
-        """Try connecting via TCP (runs in executor)."""
+    def _test_tcp_connection(hostname: str, port: int) -> str | None:
+        """Try connecting via TCP (runs in executor).
+
+        Returns the radio's node ID (!hex) when available so the entry can
+        be keyed on it instead of the (DHCP-changeable) IP address.
+        """
         from meshtastic.tcp_interface import TCPInterface
 
         iface = TCPInterface(hostname=hostname, portNumber=port)
-        iface.close()
+        try:
+            node_num = getattr(iface.myInfo, "my_node_num", None)
+        finally:
+            iface.close()
+        return f"!{node_num:08x}" if node_num is not None else None
 
     @staticmethod
     def _test_serial_connection(dev_path: str) -> None:

@@ -34,7 +34,8 @@ async def test_tcp_step_success(hass: HomeAssistant):
     )
 
     with patch(
-        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection"
+        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection",
+        return_value="!aabbccdd",
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -135,7 +136,8 @@ async def test_serial_step_failure(hass: HomeAssistant):
 async def test_duplicate_tcp_aborts(hass: HomeAssistant):
     """Test adding the same TCP host twice aborts as already_configured."""
     with patch(
-        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection"
+        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection",
+        return_value="!aabbccdd",
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -163,3 +165,108 @@ async def test_duplicate_tcp_aborts(hass: HomeAssistant):
         )
         assert result2["type"] is FlowResultType.ABORT
         assert result2["reason"] == "already_configured"
+
+
+async def test_tcp_entry_keyed_on_node_id(hass: HomeAssistant):
+    """Test a TCP entry's unique_id is the radio's node ID, not its IP."""
+    with patch(
+        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection",
+        return_value="!aabbccdd",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: "tcp"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_TCP_HOSTNAME: "192.168.1.100", CONF_TCP_PORT: DEFAULT_TCP_PORT},
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.unique_id == "!aabbccdd"
+
+
+async def test_readd_after_ip_change_updates_host(hass: HomeAssistant):
+    """Test re-adding the same radio at a new IP updates the existing entry."""
+    with patch(
+        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection",
+        return_value="!aabbccdd",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: "tcp"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_TCP_HOSTNAME: "192.168.1.100", CONF_TCP_PORT: DEFAULT_TCP_PORT},
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+
+        # Same radio, new DHCP address.
+        result2 = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {CONF_CONNECTION_TYPE: "tcp"},
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {CONF_TCP_HOSTNAME: "192.168.1.200", CONF_TCP_PORT: DEFAULT_TCP_PORT},
+        )
+        assert result2["type"] is FlowResultType.ABORT
+        assert result2["reason"] == "already_configured"
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.data[CONF_TCP_HOSTNAME] == "192.168.1.200"
+
+
+async def test_zeroconf_rediscovery_updates_host(hass: HomeAssistant):
+    """Test zeroconf discovery at a new IP updates the existing entry's host."""
+    from ipaddress import ip_address
+
+    from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+
+    with patch(
+        "custom_components.meshtastic_ui.config_flow.MeshtasticUiConfigFlow._test_tcp_connection",
+        return_value="!aabbccdd",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_CONNECTION_TYPE: "tcp"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_TCP_HOSTNAME: "192.168.1.100", CONF_TCP_PORT: DEFAULT_TCP_PORT},
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+
+    discovery = ZeroconfServiceInfo(
+        ip_address=ip_address("192.168.1.200"),
+        ip_addresses=[ip_address("192.168.1.200")],
+        hostname="meshtastic-ccdd.local.",
+        name="Meshtastic-ccdd._meshtastic._tcp.local.",
+        port=DEFAULT_TCP_PORT,
+        properties={"id": "!aabbccdd", "shortname": "CCDD"},
+        type="_meshtastic._tcp.local.",
+    )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=discovery,
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.data[CONF_TCP_HOSTNAME] == "192.168.1.200"
