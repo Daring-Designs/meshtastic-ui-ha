@@ -1782,6 +1782,11 @@ export class MeshNodesTab extends LitElement {
                 ? html`<span class="spinner"></span> Requesting...`
                 : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Request Position`}
             </button>
+            ${node.latitude != null && node.longitude != null ? html`
+            <button class="action-btn secondary" @click=${() => this._fireNodeAction("view-on-map", nodeId)}>
+              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size: 16px;"></ha-icon> View on Map
+            </button>
+            ` : ""}
             ${!node.name ? html`
             <button class="action-btn secondary"
               ?disabled=${this.pendingNodeinfo === nodeId}
@@ -1848,6 +1853,7 @@ export class MeshMapTab extends LitElement {
       waypoints: { type: Object },
       traceroutes: { type: Object },
       localNodeId: { type: String },
+      focusNode: { type: Object },
       _waypointDialog: { type: Object },
       _addingWaypoint: { type: Boolean },
     };
@@ -1859,6 +1865,9 @@ export class MeshMapTab extends LitElement {
     this.waypoints = {};
     this.traceroutes = {};
     this.localNodeId = "";
+    this.focusNode = null;
+    this._focusedNodeSeq = null;
+    this._nodeMarkers = {};
     this._leafletLoaded = false;
     this._leafletError = false;
     this._mapInstance = null;
@@ -2108,6 +2117,9 @@ export class MeshMapTab extends LitElement {
     if (changedProps.has("traceroutes")) {
       this._updateTracerouteLayer();
       this._updateSnrLines();
+    }
+    if (changedProps.has("focusNode") && this.focusNode?.id && this._focusedNodeSeq !== this.focusNode.ts) {
+      this._focusOnNode(this.focusNode.id);
     }
   }
 
@@ -2509,6 +2521,7 @@ export class MeshMapTab extends LitElement {
   _updateNodeLayer() {
     if (!this._nodeLayer) return;
     this._nodeLayer.clearLayers();
+    this._nodeMarkers = {};
     const bounds = [];
 
     for (const [nodeId, node] of Object.entries(this.nodes)) {
@@ -2531,6 +2544,7 @@ export class MeshMapTab extends LitElement {
       marker.on("click", () => this._fireNodeAction("view-node", nodeId));
       marker.bindTooltip(name, { permanent: false, direction: "top", offset: [0, -8] });
       this._nodeLayer.addLayer(marker);
+      this._nodeMarkers[nodeId] = marker;
       bounds.push([lat, lon]);
     }
 
@@ -2541,6 +2555,25 @@ export class MeshMapTab extends LitElement {
         this._mapInstance.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
       }
     }
+
+    // Re-apply a pending focus request now that markers exist again
+    // (node data reloads/rebuilds this layer from scratch on every update).
+    if (this.focusNode?.id && this._focusedNodeSeq !== this.focusNode.ts) {
+      this._focusOnNode(this.focusNode.id);
+    }
+  }
+
+  _focusOnNode(nodeId) {
+    if (!this._mapInstance) return;
+    const node = this.nodes[nodeId];
+    if (!node) return;
+    const lat = parseFloat(node.latitude);
+    const lon = parseFloat(node.longitude);
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return;
+    this._focusedNodeSeq = this.focusNode?.ts;
+    this._mapInstance.flyTo([lat, lon], Math.max(this._mapInstance.getZoom(), 15));
+    const marker = this._nodeMarkers[nodeId];
+    if (marker) marker.openTooltip();
   }
 
   _updateWaypointLayer() {

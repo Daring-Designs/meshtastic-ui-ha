@@ -70,6 +70,7 @@ class MeshtasticUiPanel extends LitElement {
       _showNotificationModal: { type: Boolean },
       _nodeDialogId: { type: String },
       _nodeDialogFeedback: { type: String },
+      _mapFocusNode: { type: Object },
       _showReconnectBanner: { type: Boolean },
       _reconnecting: { type: Boolean },
       _radios: { type: Array },
@@ -104,6 +105,7 @@ class MeshtasticUiPanel extends LitElement {
     this._showNotificationModal = false;
     this._nodeDialogId = null;
     this._nodeDialogFeedback = "";
+    this._mapFocusNode = null;
     this._showReconnectBanner = false;
     this._reconnecting = false;
     this._radios = [];
@@ -656,6 +658,12 @@ class MeshtasticUiPanel extends LitElement {
       this._nodeDialogId = nodeId;
       this._nodeDialogFeedback = "";
       return;
+    } else if (action === "view-on-map") {
+      this._mapFocusNode = { id: nodeId, ts: Date.now() };
+      this._nodeDialogId = null;
+      if (nodesTab) nodesTab.closeDialog();
+      this._setTab("map");
+      return;
     } else if (action === "send-message") {
       if (!this._dms.includes(nodeId)) {
         this._dms = [...this._dms, nodeId];
@@ -1134,7 +1142,7 @@ class MeshtasticUiPanel extends LitElement {
           ></mesh-nodes-tab>
         `;
       case "map":
-        return html`<mesh-map-tab .nodes=${this._nodes} .waypoints=${this._waypoints} .traceroutes=${this._traceroutes} .localNodeId=${this._localNodeId} @node-action=${this._onNodeAction} @waypoint-create=${this._onWaypointCreate}></mesh-map-tab>`;
+        return html`<mesh-map-tab .nodes=${this._nodes} .waypoints=${this._waypoints} .traceroutes=${this._traceroutes} .localNodeId=${this._localNodeId} .focusNode=${this._mapFocusNode} @node-action=${this._onNodeAction} @waypoint-create=${this._onWaypointCreate}></mesh-map-tab>`;
       case "settings":
         return html`
           <mesh-settings-tab
@@ -1204,7 +1212,7 @@ class MeshtasticUiPanel extends LitElement {
     const onAction = (action) => {
       if (action === "remove" && !confirm(`Remove node ${node.name || nodeId}?`)) return;
       this._onNodeAction({ detail: { action, nodeId } });
-      if (action === "send-message" || action === "remove") return; // dialog closed by handler
+      if (action === "send-message" || action === "remove" || action === "view-on-map") return; // dialog closed by handler
       if (["favorite", "unfavorite", "ignore", "unignore"].includes(action)) {
         this._showNodeDialogFeedback(action === "favorite" ? "Added to favorites" : action === "unfavorite" ? "Removed from favorites" : action === "ignore" ? "Node ignored" : "Node unignored");
       }
@@ -1289,6 +1297,11 @@ class MeshtasticUiPanel extends LitElement {
                 ? html`<span class="spinner"></span> Requesting...`
                 : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Request Position`}
             </button>
+            ${node.latitude != null && node.longitude != null ? html`
+            <button class="nd-btn" @click=${() => onAction("view-on-map")}>
+              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size:16px;"></ha-icon> View on Map
+            </button>
+            ` : ""}
             ${!node.name ? html`
             <button class="nd-btn"
               ?disabled=${this._pendingNodeinfo === nodeId}
