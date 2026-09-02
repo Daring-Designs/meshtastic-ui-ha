@@ -623,7 +623,8 @@ export class MeshMessagesTab extends LitElement {
     this.unreadCounts = {};
     this._messageInput = "";
     this._replyTo = null;
-    this._longPressTimer = null;
+    this._touchMoved = false;
+    this._touchWrapper = null;
     this._longPressTarget = null;
     this._pendingClear = null;
   }
@@ -1009,9 +1010,10 @@ export class MeshMessagesTab extends LitElement {
                   <div class="unread-divider"><span>${unreadCount} new message${unreadCount !== 1 ? "s" : ""}</span></div>
                 ` : ""}
                 <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"} ${isUnread ? "unread" : ""}"
-                  @touchstart=${hasActions ? (e) => this._onTouchStart(e, msgId) : null}
-                  @touchend=${hasActions ? () => this._onTouchEnd() : null}
-                  @touchcancel=${hasActions ? () => this._onTouchEnd() : null}
+                  @touchstart=${hasActions ? (e) => this._onTouchStart(e) : null}
+                  @touchmove=${hasActions ? () => { this._touchMoved = true; } : null}
+                  @touchend=${hasActions ? (e) => this._onTouchEnd(e) : null}
+                  @touchcancel=${hasActions ? () => this._onTouchCancel() : null}
                 >
                   <div class="bubble-row">
                     <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
@@ -1150,23 +1152,29 @@ export class MeshMessagesTab extends LitElement {
     });
   }
 
-  _onTouchStart(e, msgId) {
-    this._longPressTimer = setTimeout(() => {
-      // Toggle actions-open class on the wrapper
-      const wrapper = e.currentTarget;
-      if (wrapper) {
-        this._clearActionsOpen();
-        wrapper.classList.add("actions-open");
-        this._longPressTarget = wrapper;
-      }
-    }, 500);
+  _onTouchStart(e) {
+    this._touchMoved = false;
+    this._touchWrapper = e.currentTarget;
   }
 
-  _onTouchEnd() {
-    if (this._longPressTimer) {
-      clearTimeout(this._longPressTimer);
-      this._longPressTimer = null;
+  _onTouchEnd(e) {
+    const wrapper = this._touchWrapper;
+    this._touchWrapper = null;
+    if (this._touchMoved || !wrapper) return;
+    if (e.target.closest('.bubble-actions')) return;
+    if (wrapper.classList.contains("actions-open")) {
+      wrapper.classList.remove("actions-open");
+      this._longPressTarget = null;
+    } else {
+      this._clearActionsOpen();
+      wrapper.classList.add("actions-open");
+      this._longPressTarget = wrapper;
     }
+  }
+
+  _onTouchCancel() {
+    this._touchMoved = false;
+    this._touchWrapper = null;
   }
 
   _clearActionsOpen() {
