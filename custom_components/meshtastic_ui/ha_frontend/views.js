@@ -887,6 +887,7 @@ export class MeshMessagesTab extends LitElement {
         @media (hover: none) {
           .bubble-actions { display: none !important; }
           .chat-bubble-wrapper.actions-open .bubble-actions { display: flex !important; }
+          .chat-bubble { user-select: none; -webkit-user-select: none; }
         }
 
         @media (max-width: 600px) {
@@ -1011,7 +1012,7 @@ export class MeshMessagesTab extends LitElement {
                 ` : ""}
                 <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"} ${isUnread ? "unread" : ""}"
                   @touchstart=${hasActions ? (e) => this._onTouchStart(e) : null}
-                  @touchmove=${hasActions ? () => { this._touchMoved = true; } : null}
+                  @touchmove=${hasActions ? (e) => this._onTouchMove(e) : null}
                   @touchend=${hasActions ? (e) => this._onTouchEnd(e) : null}
                   @touchcancel=${hasActions ? () => this._onTouchCancel() : null}
                 >
@@ -1155,6 +1156,17 @@ export class MeshMessagesTab extends LitElement {
   _onTouchStart(e) {
     this._touchMoved = false;
     this._touchWrapper = e.currentTarget;
+    const t = e.touches[0];
+    this._touchStartX = t.clientX;
+    this._touchStartY = t.clientY;
+  }
+
+  _onTouchMove(e) {
+    if (this._touchMoved) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - this._touchStartX;
+    const dy = t.clientY - this._touchStartY;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) this._touchMoved = true;
   }
 
   _onTouchEnd(e) {
