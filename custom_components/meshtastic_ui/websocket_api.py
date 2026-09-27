@@ -1211,7 +1211,8 @@ def ws_get_timeseries(
     Slices the most recent data for that window and downsamples to
     TS_POINTS (360) buckets.
     """
-    ts = hass.data.get(DOMAIN, {}).get("ts")
+    entry_data = _get_entry_data(hass, msg.get("radio_id"))
+    ts = entry_data.get("ts") if entry_data else None
     if ts is None:
         connection.send_result(msg["id"], {"timeseries": None})
         return
