@@ -907,7 +907,6 @@ export class MeshMessagesTab extends LitElement {
         @media (hover: none) {
           .bubble-actions { display: none !important; }
           .chat-bubble-wrapper.actions-open .bubble-actions { display: flex !important; }
-          .chat-bubble { user-select: none; -webkit-user-select: none; }
         }
 
         @media (max-width: 600px) {
@@ -1176,16 +1175,17 @@ export class MeshMessagesTab extends LitElement {
   _onTouchStart(e) {
     this._touchMoved = false;
     this._touchWrapper = e.currentTarget;
-    const t = e.touches[0];
-    this._touchStartX = t.clientX;
-    this._touchStartY = t.clientY;
+    this._touchStartTime = Date.now();
+    const touch = e.touches[0];
+    this._touchStartX = touch.clientX;
+    this._touchStartY = touch.clientY;
   }
 
   _onTouchMove(e) {
     if (this._touchMoved) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - this._touchStartX;
-    const dy = t.clientY - this._touchStartY;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - this._touchStartX;
+    const dy = touch.clientY - this._touchStartY;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) this._touchMoved = true;
   }
 
@@ -1193,7 +1193,10 @@ export class MeshMessagesTab extends LitElement {
     const wrapper = this._touchWrapper;
     this._touchWrapper = null;
     if (this._touchMoved || !wrapper) return;
-    if (e.target.closest('.bubble-actions')) return;
+    // A press held past the OS long-press threshold is the user selecting
+    // text to copy it — leave that to the browser and don't toggle actions.
+    if (Date.now() - this._touchStartTime > 400) return;
+    if (e.target.closest(".bubble-actions")) return;
     if (wrapper.classList.contains("actions-open")) {
       wrapper.classList.remove("actions-open");
       this._longPressTarget = null;
@@ -2387,6 +2390,9 @@ export class MeshMapTab extends LitElement {
     return L.tileLayer(style === "dark" ? darkUrl : lightUrl, {
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, HERE, and other contributors',
       maxZoom: 19,
+      // The dark gray canvas service is only cached to level 16; let Leaflet
+      // upscale those tiles instead of requesting levels that 404.
+      maxNativeZoom: style === "dark" ? 16 : 19,
       noWrap: true,
     });
   }

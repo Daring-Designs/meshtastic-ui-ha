@@ -568,6 +568,9 @@ class MeshtasticUiPanel extends LitElement {
 
   _setTab(tab) {
     if (tab === this._activeTab) return;
+    // A "View on Map" jump sets _mapFocusNode right before switching here;
+    // drop it when leaving so later visits to the Map tab don't re-fly to it.
+    if (tab !== "map") this._mapFocusNode = null;
     this._activeTab = tab;
     const basePath = this.panel?.url_path || "meshtastic-ui";
     history.pushState(null, "", `/${basePath}/${tab}`);
