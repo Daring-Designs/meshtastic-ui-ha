@@ -24,12 +24,14 @@ from .const import (
 )
 
 
-def normalize_node_id(node_id: str) -> str:
+def normalize_node_id(node_id: str | None) -> str:
     """Normalize a node ID to the !hex format.
 
     Handles decimal strings (e.g. '1771758172') and returns '!699ae25c'.
     IDs already in !hex format are returned as-is.
     """
+    if node_id is None:
+        return "unknown"
     if node_id.startswith("!"):
         return node_id
     try:

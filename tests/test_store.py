@@ -30,6 +30,9 @@ class TestNormalizeNodeId:
     def test_zero(self):
         assert normalize_node_id("0") == "!00000000"
 
+    def test_none_input(self):
+        assert normalize_node_id(None) == "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Channel messages
