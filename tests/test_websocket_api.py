@@ -12,6 +12,7 @@ from custom_components.meshtastic_ui.const import DOMAIN, TS_MAX_POINTS
 from custom_components.meshtastic_ui.store import MeshtasticUiStore
 from custom_components.meshtastic_ui.websocket_api import (
     _downsample,
+    ws_get_timeseries,
     ws_messages,
     ws_node_admin,
     ws_nodes,
@@ -25,6 +26,9 @@ _ws_nodes = ws_nodes.__wrapped__
 _ws_stats = ws_stats.__wrapped__
 _ws_send_message = ws_send_message.__wrapped__
 _ws_node_admin = ws_node_admin.__wrapped__
+# ws_get_timeseries is @callback (sync), not @async_response — websocket_command
+# doesn't wrap sync callbacks, so no __wrapped__ unwinding needed here.
+_ws_get_timeseries = ws_get_timeseries
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +161,60 @@ class TestWsStats:
         assert result["messages_today"] == 1
         assert result["total_nodes"] == 1
         assert result["channel_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ws_get_timeseries
+# ---------------------------------------------------------------------------
+
+def _ts_blob(battery_value: float) -> dict:
+    """Build a minimal per-entry 'ts' dict with one distinguishing value."""
+    data = {k: deque(maxlen=TS_MAX_POINTS) for k in ("airtimeTx", "battery", "channelUtil", "packetRx", "packetTx")}
+    data["battery"].append(battery_value)
+    return {"data": data, "packetTypes": {}}
+
+
+class TestWsGetTimeseries:
+    """Tests for ws_get_timeseries command (issue #62: multi-radio regression)."""
+
+    async def test_legacy_single_entry_returns_data(self, hass: HomeAssistant, hass_data: dict):
+        hass.data[DOMAIN] = hass_data
+
+        conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/get_timeseries", "window": 3600}
+        _ws_get_timeseries(hass, conn, msg)
+
+        result = conn.send_result.call_args[0][1]
+        assert result["timeseries"] is not None
+
+    async def test_multi_radio_returns_data_for_requested_radio(self, hass: HomeAssistant):
+        # New per-entry shape: hass.data[DOMAIN]["ts"] doesn't exist at the top
+        # level, only nested under each entry. The old code read the top-level
+        # key directly and always got None here, regardless of radio_id.
+        hass.data[DOMAIN] = {
+            "entries": {
+                "radioA": {"ts": _ts_blob(3.3)},
+                "radioB": {"ts": _ts_blob(4.4)},
+            }
+        }
+
+        conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/get_timeseries", "radio_id": "radioB", "window": 3600}
+        _ws_get_timeseries(hass, conn, msg)
+
+        result = conn.send_result.call_args[0][1]
+        assert result["timeseries"] is not None
+        assert result["timeseries"]["battery"] == [4.4]
+
+    async def test_multi_radio_unknown_radio_id_returns_none(self, hass: HomeAssistant):
+        hass.data[DOMAIN] = {"entries": {"radioA": {"ts": _ts_blob(3.3)}}}
+
+        conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/get_timeseries", "radio_id": "does_not_exist", "window": 3600}
+        _ws_get_timeseries(hass, conn, msg)
+
+        result = conn.send_result.call_args[0][1]
+        assert result["timeseries"] is None
 
 
 # ---------------------------------------------------------------------------
