@@ -7,8 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from custom_components.meshtastic_ui.const import DOMAIN, TS_MAX_POINTS
+from custom_components.meshtastic_ui.const import (
+    DOMAIN,
+    SIGNAL_NOTIFICATION_PREFS,
+    TS_MAX_POINTS,
+)
 from custom_components.meshtastic_ui.store import MeshtasticUiStore
 from custom_components.meshtastic_ui.websocket_api import (
     _downsample,
@@ -17,6 +22,7 @@ from custom_components.meshtastic_ui.websocket_api import (
     ws_node_admin,
     ws_nodes,
     ws_send_message,
+    ws_set_notification_prefs,
     ws_stats,
 )
 
@@ -26,6 +32,7 @@ _ws_nodes = ws_nodes.__wrapped__
 _ws_stats = ws_stats.__wrapped__
 _ws_send_message = ws_send_message.__wrapped__
 _ws_node_admin = ws_node_admin.__wrapped__
+_ws_set_notification_prefs = ws_set_notification_prefs.__wrapped__
 # ws_get_timeseries is @callback (sync), not @async_response — websocket_command
 # doesn't wrap sync callbacks, so no __wrapped__ unwinding needed here.
 _ws_get_timeseries = ws_get_timeseries
@@ -308,6 +315,38 @@ class TestWsNodeAdmin:
         conn = _make_ws_connection(is_admin=False)
         msg = {"id": 1, "type": "meshtastic_ui/node_admin", "node_id": "!aabbccdd", "action": "remove"}
         await _ws_node_admin(hass, conn, msg)
+
+        conn.send_error.assert_called_once()
+        assert "unauthorized" in conn.send_error.call_args[0][1]
+
+
+# ---------------------------------------------------------------------------
+# ws_set_notification_prefs
+# ---------------------------------------------------------------------------
+
+class TestWsSetNotificationPrefs:
+    """Tests for ws_set_notification_prefs command (issue #47: HA switch entity)."""
+
+    async def test_dispatches_prefs_signal(self, hass: HomeAssistant, store: MeshtasticUiStore, mock_connection: MagicMock, hass_data: dict):
+        hass.data[DOMAIN] = hass_data
+        received = []
+        async_dispatcher_connect(
+            hass, SIGNAL_NOTIFICATION_PREFS, lambda data: received.append(data)
+        )
+
+        conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/set_notification_prefs", "enabled": True}
+        await _ws_set_notification_prefs(hass, conn, msg)
+
+        assert store.get_notification_prefs()["enabled"] is True
+        assert len(received) == 1
+        assert received[0]["entry_id"] == hass_data["entry_id"]
+
+    async def test_requires_admin(self, hass: HomeAssistant, store: MeshtasticUiStore, mock_connection: MagicMock, hass_data: dict):
+        hass.data[DOMAIN] = hass_data
+        conn = _make_ws_connection(is_admin=False)
+        msg = {"id": 1, "type": "meshtastic_ui/set_notification_prefs", "enabled": True}
+        await _ws_set_notification_prefs(hass, conn, msg)
 
         conn.send_error.assert_called_once()
         assert "unauthorized" in conn.send_error.call_args[0][1]

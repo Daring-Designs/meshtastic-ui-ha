@@ -26,6 +26,7 @@ from .const import (
     SIGNAL_DELIVERY_STATUS,
     SIGNAL_NEW_MESSAGE,
     SIGNAL_NODE_UPDATE,
+    SIGNAL_NOTIFICATION_PREFS,
     SIGNAL_TRACEROUTE_RESULT,
     SIGNAL_WAYPOINT_UPDATE,
     TS_FLUSH_SECONDS,
@@ -1132,6 +1133,7 @@ async def ws_set_notification_prefs(
         connection.send_error(msg["id"], "unauthorized", "Admin access required")
         return
     store = _get_store(hass, msg.get("radio_id"))
+    entry_data = _get_entry_data(hass, msg.get("radio_id")) or {}
     prefs: dict[str, Any] = {}
     if "enabled" in msg:
         prefs["enabled"] = msg["enabled"]
@@ -1140,6 +1142,11 @@ async def ws_set_notification_prefs(
     if "filter" in msg:
         prefs["filter"] = msg["filter"]
     store.set_notification_prefs(prefs)
+    async_dispatcher_send(
+        hass,
+        SIGNAL_NOTIFICATION_PREFS,
+        {"entry_id": entry_data.get("entry_id")},
+    )
     connection.send_result(msg["id"], {"success": True})
 
 
