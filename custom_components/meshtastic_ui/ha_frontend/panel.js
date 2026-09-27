@@ -22,6 +22,26 @@ window.addEventListener("unhandledrejection", (e) => {
   }
 });
 
+// localStorage is shared across the whole HA origin — another dashboard/
+// card filling the quota shouldn't be able to throw out of our click/data
+// handlers. A thrown QuotaExceededError just means the preference silently
+// doesn't persist for this load.
+function lsGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore — see lsGet comment.
+  }
+}
+
 const TABS = ["radio", "messages", "nodes", "map", "settings"];
 const TAB_LABELS = {
   radio: "Radio",
@@ -100,7 +120,7 @@ class MeshtasticUiPanel extends LitElement {
     this._tracerouteDialog = null;
     this._tracerouteTimeoutId = null;
     this._channelNames = {};
-    this._unreadCounts = JSON.parse(localStorage.getItem("meshtastic_unread") || "{}");
+    this._unreadCounts = JSON.parse(lsGet("meshtastic_unread") || "{}");
     this._notificationPrefs = { enabled: false, service: "persistent_notification.create", filter: "all" };
     this._showNotificationModal = false;
     this._nodeDialogId = null;
@@ -109,12 +129,12 @@ class MeshtasticUiPanel extends LitElement {
     this._showReconnectBanner = false;
     this._reconnecting = false;
     this._radios = [];
-    this._selectedRadioId = localStorage.getItem("meshtastic_selected_radio") || null;
+    this._selectedRadioId = lsGet("meshtastic_selected_radio") || null;
     this._radioUnread = {};
     this._wsFailCount = 0;
     this._timeSeries = null;
     this._packetTypes = null;
-    this._chartWindow = parseInt(localStorage.getItem("meshtastic_chart_window"), 10) || 3600;
+    this._chartWindow = parseInt(lsGet("meshtastic_chart_window"), 10) || 3600;
     this._tsPollingId = null;
     this._unsubscribeFn = null;
     this._unsubNodesFn = null;
@@ -246,7 +266,7 @@ class MeshtasticUiPanel extends LitElement {
     if (!this._selectedRadioId || !ids.includes(this._selectedRadioId)) {
       this._selectedRadioId = ids[0] || null;
       if (this._selectedRadioId) {
-        localStorage.setItem("meshtastic_selected_radio", this._selectedRadioId);
+        lsSet("meshtastic_selected_radio", this._selectedRadioId);
       }
     }
   }
@@ -254,7 +274,7 @@ class MeshtasticUiPanel extends LitElement {
   async _switchRadio(radioId) {
     if (!radioId || radioId === this._selectedRadioId) return;
     this._selectedRadioId = radioId;
-    localStorage.setItem("meshtastic_selected_radio", radioId);
+    lsSet("meshtastic_selected_radio", radioId);
     // Clear the red-dot for the radio we just switched to.
     if (this._radioUnread[radioId]) {
       const { [radioId]: _, ...rest } = this._radioUnread;
@@ -495,7 +515,7 @@ class MeshtasticUiPanel extends LitElement {
           ...this._unreadCounts,
           [key]: (this._unreadCounts[key] || 0) + 1,
         };
-        localStorage.setItem("meshtastic_unread", JSON.stringify(this._unreadCounts));
+        lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
       }
     }
   }
@@ -566,7 +586,7 @@ class MeshtasticUiPanel extends LitElement {
     const w = parseInt(e.detail.window, 10);
     if (w && w !== this._chartWindow) {
       this._chartWindow = w;
-      localStorage.setItem("meshtastic_chart_window", String(w));
+      lsSet("meshtastic_chart_window", String(w));
       this._loadTimeSeries();
     }
   }
@@ -589,7 +609,7 @@ class MeshtasticUiPanel extends LitElement {
     if (this._unreadCounts[conv]) {
       const { [conv]: _u, ...restUnread } = this._unreadCounts;
       this._unreadCounts = restUnread;
-      localStorage.setItem("meshtastic_unread", JSON.stringify(this._unreadCounts));
+      lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
     }
     if (this._selectedConversation === conv) {
       this._selectedConversation = "";
@@ -604,7 +624,7 @@ class MeshtasticUiPanel extends LitElement {
       this._channels = [];
       this._dms = [];
       this._unreadCounts = {};
-      localStorage.setItem("meshtastic_unread", "{}");
+      lsSet("meshtastic_unread", "{}");
       await this._loadMessages();
     }
     if (kind === "clear_nodes" || kind === "clear_all") {
@@ -628,7 +648,7 @@ class MeshtasticUiPanel extends LitElement {
     if (this._unreadCounts[conv]) {
       const { [conv]: _, ...rest } = this._unreadCounts;
       this._unreadCounts = rest;
-      localStorage.setItem("meshtastic_unread", JSON.stringify(this._unreadCounts));
+      lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
     }
   }
 

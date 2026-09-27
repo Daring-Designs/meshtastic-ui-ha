@@ -8,6 +8,26 @@ import {
    Shared helpers
    ══════════════════════════════════════════════════════════ */
 
+// localStorage is shared across the whole HA origin — another dashboard/
+// card filling the quota shouldn't be able to break map interactions here.
+// A thrown QuotaExceededError (or storage disabled entirely) just means the
+// preference silently doesn't persist for this load.
+function lsGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore — see lsGet comment.
+  }
+}
+
 function formatTime(iso) {
   if (!iso) return "";
   try {
@@ -1663,7 +1683,7 @@ export class MeshNodesTab extends LitElement {
 
   _loadFilterState() {
     try {
-      const raw = localStorage.getItem("meshtastic-ui:node-filters");
+      const raw = lsGet("meshtastic-ui:node-filters");
       if (!raw) return;
       const s = JSON.parse(raw);
       if (s && typeof s === "object") {
@@ -1896,7 +1916,7 @@ export class MeshMapTab extends LitElement {
     this._snrLineLayer = null;
     this._tracerouteLayer = null;
     this._showNodes = true;
-    this._hideMqttNodes = localStorage.getItem("meshtastic_map_hide_mqtt") === "1";
+    this._hideMqttNodes = lsGet("meshtastic_map_hide_mqtt") === "1";
     this._showWaypoints = true;
     this._showSnrLines = false;
     this._showTraceroutes = false;
@@ -1907,11 +1927,11 @@ export class MeshMapTab extends LitElement {
     this._tileLayer = null;
     // Tile style: "light" | "dark" | "satellite". Migrate legacy dark bool
     // (meshtastic_map_dark) to the new key on first load, else follow HA theme.
-    const storedStyle = localStorage.getItem("meshtastic_map_style");
+    const storedStyle = lsGet("meshtastic_map_style");
     if (storedStyle === "light" || storedStyle === "dark" || storedStyle === "satellite") {
       this._mapStyle = storedStyle;
     } else {
-      const legacyDark = localStorage.getItem("meshtastic_map_dark");
+      const legacyDark = lsGet("meshtastic_map_dark");
       const dark = legacyDark != null ? legacyDark === "true" : this._detectDarkTheme();
       this._mapStyle = dark ? "dark" : "light";
     }
@@ -2357,11 +2377,15 @@ export class MeshMapTab extends LitElement {
         }
       );
     }
-    const lightUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-    const darkUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-    const attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
+    // Esri's public basemap tiles: no account/key required and no
+    // referer-allowlist gating, unlike CartoDB's anonymous basemap tier
+    // (intermittently watermarks tiles "API key required") and plain
+    // OpenStreetMap tile servers (block third-party app embedding outright
+    // per osm.wiki/Blocked). Same tile domain already used for Satellite.
+    const lightUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+    const darkUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
     return L.tileLayer(style === "dark" ? darkUrl : lightUrl, {
-      attribution: attr,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, HERE, and other contributors',
       maxZoom: 19,
       noWrap: true,
     });
@@ -2371,7 +2395,7 @@ export class MeshMapTab extends LitElement {
     if (style !== "light" && style !== "dark" && style !== "satellite") return;
     if (style === this._mapStyle) return;
     this._mapStyle = style;
-    localStorage.setItem("meshtastic_map_style", style);
+    lsSet("meshtastic_map_style", style);
     if (this._mapInstance && this._tileLayer) {
       this._mapInstance.removeLayer(this._tileLayer);
       this._tileLayer = this._createTileLayer(this._mapStyle).addTo(this._mapInstance);
@@ -2386,7 +2410,7 @@ export class MeshMapTab extends LitElement {
 
   _toggleHideMqtt() {
     this._hideMqttNodes = !this._hideMqttNodes;
-    localStorage.setItem("meshtastic_map_hide_mqtt", this._hideMqttNodes ? "1" : "0");
+    lsSet("meshtastic_map_hide_mqtt", this._hideMqttNodes ? "1" : "0");
     this._updateNodeLayer();
     this._updateSnrLines();
     this.requestUpdate();
@@ -2471,7 +2495,7 @@ export class MeshMapTab extends LitElement {
     if (!container || this._mapInstance) return;
 
     // Restore saved position/zoom or use defaults.
-    const savedView = JSON.parse(localStorage.getItem("meshtastic_map_view") || "null");
+    const savedView = JSON.parse(lsGet("meshtastic_map_view") || "null");
     this._savedViewRestored = !!savedView;
     const initCenter = savedView ? [savedView.lat, savedView.lng] : [20, 0];
     const initZoom = savedView ? savedView.zoom : 3;
@@ -2484,10 +2508,12 @@ export class MeshMapTab extends LitElement {
 
     this._tileLayer = this._createTileLayer(this._mapStyle).addTo(map);
 
-    // Persist position and zoom on every move.
+    // Persist position and zoom on every move. A throwing listener here
+    // (e.g. a full localStorage quota) would otherwise interrupt Leaflet's
+    // own internal handling of the same "moveend" event.
     map.on("moveend", () => {
       const c = map.getCenter();
-      localStorage.setItem("meshtastic_map_view", JSON.stringify({
+      lsSet("meshtastic_map_view", JSON.stringify({
         lat: c.lat, lng: c.lng, zoom: map.getZoom(),
       }));
     });
@@ -2497,6 +2523,19 @@ export class MeshMapTab extends LitElement {
     this._waypointLayer = L.layerGroup().addTo(map);
     this._snrLineLayer = L.layerGroup();
     this._tracerouteLayer = L.layerGroup();
+
+    // The map's container isn't always fully settled (HA's panel layout,
+    // flex/grid reflow, tab-switch animation) at the instant Leaflet
+    // measures it here. A stale size measurement doesn't show up until a
+    // later zoom/pan, when it throws off marker scaling and tile-layer
+    // redraws — force Leaflet to re-measure once the container has
+    // actually stabilized, and again on any later resize.
+    requestAnimationFrame(() => map.invalidateSize());
+    setTimeout(() => map.invalidateSize(), 250);
+    if (typeof ResizeObserver !== "undefined") {
+      this._mapResizeObserver = new ResizeObserver(() => map.invalidateSize());
+      this._mapResizeObserver.observe(container);
+    }
 
     map.on("click", (e) => {
       if (!this._addingWaypoint) return;
@@ -2745,6 +2784,10 @@ export class MeshMapTab extends LitElement {
   }
 
   _destroyMap() {
+    if (this._mapResizeObserver) {
+      this._mapResizeObserver.disconnect();
+      this._mapResizeObserver = null;
+    }
     if (this._mapInstance) {
       this._mapInstance.remove();
       this._mapInstance = null;
