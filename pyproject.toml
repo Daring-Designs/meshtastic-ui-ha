@@ -3,10 +3,14 @@ name = "meshtastic-ui-ha"
 version = "0.2.0"
 
 [project.optional-dependencies]
+# PyPI's pytest-homeassistant-custom-component is stale (frozen at HA 2024.3.3,
+# predates StaticPathConfig / helpers.service_info.zeroconf that this project uses).
+# Pinned to a GitHub tag whose bundled HA version (2025.2.0, needs Python 3.13) covers
+# every homeassistant.* API this project imports.
 test = [
     "pytest",
     "pytest-asyncio",
-    "pytest-homeassistant-custom-component",
+    "pytest-homeassistant-custom-component @ git+https://github.com/MatthewFlamm/pytest-homeassistant-custom-component.git@0.13.210",
     "pytest-cov",
 ]
 

@@ -19,9 +19,10 @@ npm run build        # bundle Lit (Vite) + copy Leaflet & D3 into vendor/
 
 ### Tests
 
-Backend Python tests use `pytest` with `pytest-homeassistant-custom-component`:
+Backend Python tests use `pytest` with `pytest-homeassistant-custom-component`. **Requires Python 3.13** — `pyproject.toml` pins the test plugin to a GitHub tag bundling HA 2025.2.0 (PyPI's release is stale, frozen at HA 2024.3.3, and lacks APIs this project uses like `StaticPathConfig` and `helpers.service_info.zeroconf`). Create the venv with `python3.13 -m venv venv` (not the system default `python3`).
 
 ```bash
+python3.13 -m venv venv && source venv/bin/activate
 pip install -e ".[test]"   # install test deps
 pytest                      # run tests
 ```
