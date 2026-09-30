@@ -1,6 +1,9 @@
 [project]
 name = "meshtastic-ui-ha"
 version = "0.2.0"
+# The test plugin sets a per-release Python floor; on older interpreters pip silently
+# resolves to a years-old release whose bundled HA lacks APIs this project uses.
+requires-python = ">=3.14"
 
 [project.optional-dependencies]
 test = [
