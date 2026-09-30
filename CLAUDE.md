@@ -28,7 +28,7 @@ pytest                      # run tests
 
 ### Manual testing
 
-Copy `custom_components/meshtastic_ui/` into a Home Assistant `config/custom_components/` directory, restart HA, and hard-refresh the browser (Ctrl+Shift+R) to bypass cached JS.
+Copy `custom_components/meshtastic_ui/` into a Home Assistant `config/custom_components/` directory, restart HA, and refresh the browser. Frontend files are served with `Cache-Control: no-cache` and the panel module URL carries the manifest version, so a normal refresh picks up new JS; fall back to a hard refresh (Ctrl+Shift+R) only if a proxy in front of HA ignores those headers.
 
 ## Architecture
 
