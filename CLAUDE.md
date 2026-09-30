@@ -19,7 +19,7 @@ npm run build        # bundle Lit (Vite) + copy Leaflet & D3 into vendor/
 
 ### Tests
 
-Backend Python tests use `pytest` with `pytest-homeassistant-custom-component`:
+Backend Python tests use `pytest` with `pytest-homeassistant-custom-component`. Use Python 3.14 or newer (`requires-python` in `pyproject.toml` enforces this). On an older interpreter pip silently resolves the test plugin to a years-old release whose bundled Home Assistant lacks APIs this project uses.
 
 ```bash
 pip install -e ".[test]"   # install test deps
