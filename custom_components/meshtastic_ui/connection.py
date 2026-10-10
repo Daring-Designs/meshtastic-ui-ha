@@ -140,7 +140,7 @@ def _fill_enum_defaults(proto_obj: Any, d: dict[str, Any]) -> None:
                     d[field.name] = enum_val.name
         elif (
             field.message_type is not None
-            and field.label != FieldDescriptor.LABEL_REPEATED
+            and not field.is_repeated
         ):
             sub_dict = d.get(field.name)
             if isinstance(sub_dict, dict):
