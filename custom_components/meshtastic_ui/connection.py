@@ -13,6 +13,14 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _is_repeated(field: Any) -> bool:
+    """Return True for repeated fields; works with old and new protobuf."""
+    is_repeated = getattr(field, "is_repeated", None)
+    if is_repeated is not None:
+        return bool(is_repeated)
+    return field.label == field.LABEL_REPEATED
+
 MIN_RECONNECT_DELAY = 5
 MAX_RECONNECT_DELAY = 300  # 5 minutes
 WATCHDOG_INTERVAL = 60    # seconds between liveness checks
@@ -51,7 +59,7 @@ def _apply_protobuf_values(
 
         field = field_map[key]
 
-        if field.message_type is not None and field.label != FieldDescriptor.LABEL_REPEATED:
+        if field.message_type is not None and not _is_repeated(field):
             # Nested sub-message — recurse into it.
             if isinstance(value, dict):
                 sub_msg = getattr(proto_obj, key)
@@ -61,7 +69,7 @@ def _apply_protobuf_values(
                     "Expected dict for sub-message field '%s' in '%s', got %s",
                     key, context or "config", type(value).__name__,
                 )
-        elif field.label == FieldDescriptor.LABEL_REPEATED:
+        elif _is_repeated(field):
             # Repeated field — clear and extend.
             repeated = getattr(proto_obj, key)
             del repeated[:]
@@ -140,7 +148,7 @@ def _fill_enum_defaults(proto_obj: Any, d: dict[str, Any]) -> None:
                     d[field.name] = enum_val.name
         elif (
             field.message_type is not None
-            and field.label != FieldDescriptor.LABEL_REPEATED
+            and not _is_repeated(field)
         ):
             sub_dict = d.get(field.name)
             if isinstance(sub_dict, dict):
