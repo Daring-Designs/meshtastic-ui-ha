@@ -1,0 +1,39 @@
+{
+  "config": {
+    "flow_title": "{name} — {address}",
+    "step": {
+      "user": {
+        "title": "Meshtastic UI",
+        "description": "Подключитесь напрямую к вашему радио Meshtastic. Выберите тип подключения.",
+        "data": {
+          "connection_type": "Тип подключения"
+        }
+      },
+      "tcp": {
+        "title": "TCP-подключение",
+        "description": "Введите IP-адрес или имя хоста вашего радио Meshtastic.",
+        "data": {
+          "tcp_hostname": "Имя хоста или IP-адрес",
+          "tcp_port": "Порт"
+        }
+      },
+      "serial": {
+        "title": "Последовательное подключение",
+        "description": "Введите путь к последовательному устройству для вашего радио Meshtastic.",
+        "data": {
+          "serial_dev_path": "Путь к устройству"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Настройка радио Meshtastic",
+        "description": "В сети обнаружено радио Meshtastic:\n\n**{name}**\n`{host}:{port}`\n\nНастроить его?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось подключиться к радио. Проверьте адрес и убедитесь, что радио включено."
+    },
+    "abort": {
+      "already_configured": "Meshtastic UI уже настроен."
+    }
+  }
+}

@@ -15,20 +15,31 @@ import {
   emptyStateStyles,
   badgeStyles,
 } from "./styles.js";
+import { t } from "./i18n.js";
+
+/* Option lists keep translation keys, not text, because they are built at
+   import time, before the panel has picked a language. Codes that are not
+   words (region bands, OLED chip names) keep a literal label. */
+function translateOptions(options) {
+  return options.map((option) => ({
+    value: option.value,
+    label: option.labelKey ? t(option.labelKey) : option.label,
+  }));
+}
 
 /* ── LoRa modem presets & region enum maps ── */
 const MODEM_PRESETS = [
-  { value: "LONG_FAST", label: "Long Range / Fast" },
-  { value: "LONG_SLOW", label: "Long Range / Slow" },
-  { value: "LONG_MODERATE", label: "Long Range / Moderate" },
-  { value: "SHORT_FAST", label: "Short Range / Fast" },
-  { value: "SHORT_SLOW", label: "Short Range / Slow" },
-  { value: "MEDIUM_FAST", label: "Medium Range / Fast" },
-  { value: "MEDIUM_SLOW", label: "Medium Range / Slow" },
+  { value: "LONG_FAST", labelKey: "settings.lora.presets.long_fast" },
+  { value: "LONG_SLOW", labelKey: "settings.lora.presets.long_slow" },
+  { value: "LONG_MODERATE", labelKey: "settings.lora.presets.long_moderate" },
+  { value: "SHORT_FAST", labelKey: "settings.lora.presets.short_fast" },
+  { value: "SHORT_SLOW", labelKey: "settings.lora.presets.short_slow" },
+  { value: "MEDIUM_FAST", labelKey: "settings.lora.presets.medium_fast" },
+  { value: "MEDIUM_SLOW", labelKey: "settings.lora.presets.medium_slow" },
 ];
 
 const REGIONS = [
-  { value: "UNSET", label: "Unset" },
+  { value: "UNSET", labelKey: "settings.lora.regions.unset" },
   { value: "US", label: "US" },
   { value: "EU_433", label: "EU 433" },
   { value: "EU_868", label: "EU 868" },
@@ -46,62 +57,62 @@ const REGIONS = [
   { value: "MY_433", label: "MY 433" },
   { value: "MY_919", label: "MY 919" },
   { value: "SG_923", label: "SG 923" },
-  { value: "LORA_24", label: "2.4 GHz" },
+  { value: "LORA_24", labelKey: "settings.lora.regions.lora_24" },
 ];
 
 const CHANNEL_ROLES = [
-  { value: "DISABLED", label: "Disabled" },
-  { value: "PRIMARY", label: "Primary" },
-  { value: "SECONDARY", label: "Secondary" },
+  { value: "DISABLED", labelKey: "settings.channels.roles.disabled" },
+  { value: "PRIMARY", labelKey: "settings.channels.roles.primary" },
+  { value: "SECONDARY", labelKey: "settings.channels.roles.secondary" },
 ];
 
 /* ── Device role enum ── */
 const DEVICE_ROLES = [
-  { value: "CLIENT", label: "Client" },
-  { value: "CLIENT_MUTE", label: "Client Mute" },
-  { value: "CLIENT_HIDDEN", label: "Client Hidden" },
-  { value: "CLIENT_BASE", label: "Client Base" },
-  { value: "ROUTER", label: "Router" },
-  { value: "ROUTER_LATE", label: "Router Late" },
-  { value: "ROUTER_CLIENT", label: "Router Client" },
-  { value: "REPEATER", label: "Repeater" },
-  { value: "TRACKER", label: "Tracker" },
-  { value: "SENSOR", label: "Sensor" },
-  { value: "TAK", label: "TAK" },
-  { value: "TAK_TRACKER", label: "TAK Tracker" },
-  { value: "LOST_AND_FOUND", label: "Lost and Found" },
+  { value: "CLIENT", labelKey: "settings.device.roles.client" },
+  { value: "CLIENT_MUTE", labelKey: "settings.device.roles.client_mute" },
+  { value: "CLIENT_HIDDEN", labelKey: "settings.device.roles.client_hidden" },
+  { value: "CLIENT_BASE", labelKey: "settings.device.roles.client_base" },
+  { value: "ROUTER", labelKey: "settings.device.roles.router" },
+  { value: "ROUTER_LATE", labelKey: "settings.device.roles.router_late" },
+  { value: "ROUTER_CLIENT", labelKey: "settings.device.roles.router_client" },
+  { value: "REPEATER", labelKey: "settings.device.roles.repeater" },
+  { value: "TRACKER", labelKey: "settings.device.roles.tracker" },
+  { value: "SENSOR", labelKey: "settings.device.roles.sensor" },
+  { value: "TAK", labelKey: "settings.device.roles.tak" },
+  { value: "TAK_TRACKER", labelKey: "settings.device.roles.tak_tracker" },
+  { value: "LOST_AND_FOUND", labelKey: "settings.device.roles.lost_and_found" },
 ];
 
 const REBROADCAST_MODES = [
-  { value: "ALL", label: "All" },
-  { value: "ALL_SKIP_DECODING", label: "All (Skip Decoding)" },
-  { value: "LOCAL_ONLY", label: "Local Only" },
-  { value: "KNOWN_ONLY", label: "Known Only" },
-  { value: "NONE", label: "None" },
+  { value: "ALL", labelKey: "settings.device.rebroadcast_modes.all" },
+  { value: "ALL_SKIP_DECODING", labelKey: "settings.device.rebroadcast_modes.all_skip_decoding" },
+  { value: "LOCAL_ONLY", labelKey: "settings.device.rebroadcast_modes.local_only" },
+  { value: "KNOWN_ONLY", labelKey: "settings.device.rebroadcast_modes.known_only" },
+  { value: "NONE", labelKey: "settings.device.rebroadcast_modes.none" },
 ];
 
 /* ── Position / GPS enums ── */
 const GPS_MODES = [
-  { value: "DISABLED", label: "Disabled" },
-  { value: "ENABLED", label: "Enabled" },
-  { value: "NOT_PRESENT", label: "Not Present" },
+  { value: "DISABLED", labelKey: "settings.position.gps_modes.disabled" },
+  { value: "ENABLED", labelKey: "settings.position.gps_modes.enabled" },
+  { value: "NOT_PRESENT", labelKey: "settings.position.gps_modes.not_present" },
 ];
 
 /* ── Display enums ── */
 const DISPLAY_MODES = [
-  { value: "DEFAULT", label: "Default" },
-  { value: "TWOCOLOR", label: "Two Color" },
-  { value: "INVERTED", label: "Inverted" },
-  { value: "COLOR", label: "Color" },
+  { value: "DEFAULT", labelKey: "settings.display.modes.default" },
+  { value: "TWOCOLOR", labelKey: "settings.display.modes.twocolor" },
+  { value: "INVERTED", labelKey: "settings.display.modes.inverted" },
+  { value: "COLOR", labelKey: "settings.display.modes.color" },
 ];
 
 const DISPLAY_UNITS = [
-  { value: "METRIC", label: "Metric" },
-  { value: "IMPERIAL", label: "Imperial" },
+  { value: "METRIC", labelKey: "settings.display.units.metric" },
+  { value: "IMPERIAL", labelKey: "settings.display.units.imperial" },
 ];
 
 const OLED_TYPES = [
-  { value: "OLED_AUTO", label: "Auto Detect" },
+  { value: "OLED_AUTO", labelKey: "settings.display.oled_types.auto" },
   { value: "OLED_SSD1306", label: "SSD1306" },
   { value: "OLED_SH1106", label: "SH1106" },
   { value: "OLED_SH1107", label: "SH1107" },
@@ -109,60 +120,60 @@ const OLED_TYPES = [
 
 /* ── Bluetooth enums ── */
 const BT_PAIRING_MODES = [
-  { value: "RANDOM_PIN", label: "Random PIN" },
-  { value: "FIXED_PIN", label: "Fixed PIN" },
-  { value: "NO_PIN", label: "No PIN" },
+  { value: "RANDOM_PIN", labelKey: "settings.bluetooth.pairing_modes.random_pin" },
+  { value: "FIXED_PIN", labelKey: "settings.bluetooth.pairing_modes.fixed_pin" },
+  { value: "NO_PIN", labelKey: "settings.bluetooth.pairing_modes.no_pin" },
 ];
 
 /* ── Navigation items ── */
 const NAV_ITEMS = [
   {
-    group: "Radio Config",
+    groupKey: "settings.nav.groups.radio_config",
     items: [
-      { id: "lora", label: "LoRa", icon: "mdi:antenna" },
-      { id: "channels", label: "Channels", icon: "mdi:forum" },
-      { id: "user", label: "User", icon: "mdi:account" },
+      { id: "lora", labelKey: "settings.nav.lora", icon: "mdi:antenna" },
+      { id: "channels", labelKey: "settings.nav.channels", icon: "mdi:forum" },
+      { id: "user", labelKey: "settings.nav.user", icon: "mdi:account" },
     ],
   },
   {
-    group: "Device Config",
+    groupKey: "settings.nav.groups.device_config",
     items: [
-      { id: "device", label: "Device", icon: "mdi:cellphone-cog" },
-      { id: "position", label: "Position", icon: "mdi:crosshairs-gps" },
-      { id: "power", label: "Power", icon: "mdi:battery-charging" },
-      { id: "network", label: "Network", icon: "mdi:wifi" },
-      { id: "display", label: "Display", icon: "mdi:monitor" },
-      { id: "bluetooth", label: "Bluetooth", icon: "mdi:bluetooth" },
-      { id: "security", label: "Security", icon: "mdi:shield-lock" },
+      { id: "device", labelKey: "settings.nav.device", icon: "mdi:cellphone-cog" },
+      { id: "position", labelKey: "settings.nav.position", icon: "mdi:crosshairs-gps" },
+      { id: "power", labelKey: "settings.nav.power", icon: "mdi:battery-charging" },
+      { id: "network", labelKey: "settings.nav.network", icon: "mdi:wifi" },
+      { id: "display", labelKey: "settings.nav.display", icon: "mdi:monitor" },
+      { id: "bluetooth", labelKey: "settings.nav.bluetooth", icon: "mdi:bluetooth" },
+      { id: "security", labelKey: "settings.nav.security", icon: "mdi:shield-lock" },
     ],
   },
   {
-    group: "Module Config",
+    groupKey: "settings.nav.groups.module_config",
     items: [
-      { id: "mqtt", label: "MQTT", icon: "mdi:transit-connection-variant" },
-      { id: "serial", label: "Serial", icon: "mdi:serial-port" },
-      { id: "ext_notification", label: "Ext. Notification", icon: "mdi:bell-ring" },
-      { id: "store_forward", label: "Store & Forward", icon: "mdi:database-arrow-right" },
-      { id: "range_test", label: "Range Test", icon: "mdi:signal-distance-variant" },
-      { id: "telemetry", label: "Telemetry", icon: "mdi:chart-line" },
-      { id: "canned_message", label: "Canned Messages", icon: "mdi:message-reply-text" },
-      { id: "audio", label: "Audio", icon: "mdi:microphone" },
-      { id: "neighbor_info", label: "Neighbor Info", icon: "mdi:account-group" },
-      { id: "ambient_lighting", label: "Ambient Lighting", icon: "mdi:led-on" },
-      { id: "detection_sensor", label: "Detection Sensor", icon: "mdi:motion-sensor" },
-      { id: "paxcounter", label: "Paxcounter", icon: "mdi:counter" },
+      { id: "mqtt", labelKey: "settings.nav.mqtt", icon: "mdi:transit-connection-variant" },
+      { id: "serial", labelKey: "settings.nav.serial", icon: "mdi:serial-port" },
+      { id: "ext_notification", labelKey: "settings.nav.ext_notification", icon: "mdi:bell-ring" },
+      { id: "store_forward", labelKey: "settings.nav.store_forward", icon: "mdi:database-arrow-right" },
+      { id: "range_test", labelKey: "settings.nav.range_test", icon: "mdi:signal-distance-variant" },
+      { id: "telemetry", labelKey: "settings.nav.telemetry", icon: "mdi:chart-line" },
+      { id: "canned_message", labelKey: "settings.nav.canned_message", icon: "mdi:message-reply-text" },
+      { id: "audio", labelKey: "settings.nav.audio", icon: "mdi:microphone" },
+      { id: "neighbor_info", labelKey: "settings.nav.neighbor_info", icon: "mdi:account-group" },
+      { id: "ambient_lighting", labelKey: "settings.nav.ambient_lighting", icon: "mdi:led-on" },
+      { id: "detection_sensor", labelKey: "settings.nav.detection_sensor", icon: "mdi:motion-sensor" },
+      { id: "paxcounter", labelKey: "settings.nav.paxcounter", icon: "mdi:counter" },
     ],
   },
   {
-    group: "Device",
+    groupKey: "settings.nav.groups.device",
     items: [
-      { id: "actions", label: "Device Actions", icon: "mdi:cog" },
+      { id: "actions", labelKey: "settings.nav.actions", icon: "mdi:cog" },
     ],
   },
   {
-    group: "Local Data",
+    groupKey: "settings.nav.groups.local_data",
     items: [
-      { id: "storage", label: "Storage", icon: "mdi:database" },
+      { id: "storage", labelKey: "settings.nav.storage", icon: "mdi:database" },
     ],
   },
 ];
@@ -228,7 +239,7 @@ export class MeshSettingsTab extends LitElement {
     if (result) {
       this._config = result;
     } else {
-      this._error = "Failed to load config from radio. Is the radio connected?";
+      this._error = t("settings.load_error");
     }
     this._loading = false;
     this.requestUpdate();
@@ -247,7 +258,7 @@ export class MeshSettingsTab extends LitElement {
 
   render() {
     if (this._loading) {
-      return html`<div class="loading">Loading radio configuration...</div>`;
+      return html`<div class="loading">${t("settings.loading_config")}</div>`;
     }
 
     return html`
@@ -256,12 +267,12 @@ export class MeshSettingsTab extends LitElement {
         <div class="settings-nav">
           ${NAV_ITEMS.map((group) => html`
             <div class="settings-nav-group">
-              <div class="settings-nav-header">${group.group}</div>
+              <div class="settings-nav-header">${t(group.groupKey)}</div>
               ${group.items.map((item) => html`
                 <div
                   class="settings-nav-item ${this._activePanel === item.id ? "active" : ""}"
                   @click=${() => { this._activePanel = item.id; this.requestUpdate(); }}
-                >${item.label}</div>
+                >${t(item.labelKey)}</div>
               `)}
             </div>
           `)}
@@ -368,7 +379,7 @@ export class MeshSettingsTab extends LitElement {
           .wsCommand=${(type, data) => this._ws(type, data)}
         ></mesh-settings-storage>`;
       default:
-        return html`<div class="empty-state">Select a settings panel</div>`;
+        return html`<div class="empty-state">${t("settings.select_panel")}</div>`;
     }
   }
 }
@@ -446,28 +457,28 @@ class MeshSettingsLora extends LitElement {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>LoRa Configuration</h3>
-          <p>Configure radio frequency, modem preset, and transmission settings.</p>
+          <h3>${t("settings.lora.title")}</h3>
+          <p>${t("settings.lora.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-select
-              label="Region"
+              label=${t("settings.lora.region")}
               .value=${String(d.region || "UNSET")}
-              .options=${REGIONS}
+              .options=${translateOptions(REGIONS)}
               @change=${(e) => this._updateField("region", e.detail.value)}
             ></mesh-select>
 
             <mesh-select
-              label="Modem Preset"
+              label=${t("settings.lora.modem_preset")}
               .value=${String(d.modem_preset || "LONG_FAST")}
-              .options=${MODEM_PRESETS}
+              .options=${translateOptions(MODEM_PRESETS)}
               @change=${(e) => this._updateField("modem_preset", e.detail.value)}
             ></mesh-select>
 
             <mesh-number-input
-              label="Hop Limit"
-              description="Max number of hops (1-7)"
+              label=${t("settings.lora.hop_limit")}
+              description=${t("settings.lora.hop_limit_desc")}
               .value=${d.hop_limit ?? 3}
               .min=${1}
               .max=${7}
@@ -475,8 +486,8 @@ class MeshSettingsLora extends LitElement {
             ></mesh-number-input>
 
             <mesh-number-input
-              label="TX Power (dBm)"
-              description="Transmit power in dBm (0 = max for region)"
+              label=${t("settings.lora.tx_power")}
+              description=${t("settings.lora.tx_power_desc")}
               .value=${d.tx_power ?? 0}
               .min=${0}
               .max=${30}
@@ -484,24 +495,24 @@ class MeshSettingsLora extends LitElement {
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Frequency Offset (Hz)"
-              description="Fine-tune frequency offset"
+              label=${t("settings.lora.frequency_offset")}
+              description=${t("settings.lora.frequency_offset_desc")}
               .value=${d.frequency_offset ?? 0}
               .step=${100}
               @change=${(e) => this._updateField("frequency_offset", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Bandwidth (kHz)"
-              description="Override bandwidth (0 = use preset)"
+              label=${t("settings.lora.bandwidth")}
+              description=${t("settings.lora.bandwidth_desc")}
               .value=${d.bandwidth ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("bandwidth", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Spread Factor"
-              description="Override spread factor (0 = use preset)"
+              label=${t("settings.lora.spread_factor")}
+              description=${t("settings.lora.spread_factor_desc")}
               .value=${d.spread_factor ?? 0}
               .min=${0}
               .max=${12}
@@ -509,8 +520,8 @@ class MeshSettingsLora extends LitElement {
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Coding Rate"
-              description="Override coding rate (0 = use preset)"
+              label=${t("settings.lora.coding_rate")}
+              description=${t("settings.lora.coding_rate_desc")}
               .value=${d.coding_rate ?? 0}
               .min=${0}
               .max=${8}
@@ -520,29 +531,29 @@ class MeshSettingsLora extends LitElement {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="TX Enabled"
-              description="Allow radio to transmit"
+              label=${t("settings.lora.tx_enabled")}
+              description=${t("settings.lora.tx_enabled_desc")}
               .checked=${d.tx_enabled !== false}
               @change=${(e) => this._updateField("tx_enabled", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Use Preset"
-              description="Use the modem preset or custom values"
+              label=${t("settings.lora.use_preset")}
+              description=${t("settings.lora.use_preset_desc")}
               .checked=${d.use_preset !== false}
               @change=${(e) => this._updateField("use_preset", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Override Duty Cycle"
-              description="Override regional duty cycle limits (use with caution)"
+              label=${t("settings.lora.override_duty_cycle")}
+              description=${t("settings.lora.override_duty_cycle_desc")}
               .checked=${d.override_duty_cycle === true}
               @change=${(e) => this._updateField("override_duty_cycle", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Boosted RX Gain"
-              description="Enable boosted RX gain on SX1262"
+              label=${t("settings.lora.boosted_rx_gain")}
+              description=${t("settings.lora.boosted_rx_gain_desc")}
               .checked=${d.sx126x_rx_boosted_gain === true}
               @change=${(e) => this._updateField("sx126x_rx_boosted_gain", e.detail.checked)}
             ></mesh-toggle>
@@ -680,8 +691,8 @@ class MeshSettingsChannels extends LitElement {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Channels</h3>
-          <p>Configure up to 8 channels. Each channel can have its own name and encryption key.</p>
+          <h3>${t("settings.channels.title")}</h3>
+          <p>${t("settings.channels.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           ${Array.from({ length: maxChannels }, (_, i) => this._renderChannel(i))}
@@ -694,14 +705,17 @@ class MeshSettingsChannels extends LitElement {
     const draft = this._drafts[index] || { role: "DISABLED", name: "", psk: "", uplink_enabled: false, downlink_enabled: false };
     const isExpanded = this._expandedIndex === index;
     const isDirty = this._dirtyIndexes.has(index);
-    const roleName = CHANNEL_ROLES.find((r) => r.value === draft.role)?.label || "Disabled";
+    const roleKey = CHANNEL_ROLES.find((role) => role.value === draft.role)?.labelKey || "settings.channels.roles.disabled";
+    const roleName = t(roleKey);
 
     return html`
       <div class="channel-card">
         <div class="channel-card-header"
           @click=${() => { this._expandedIndex = isExpanded ? null : index; this.requestUpdate(); }}>
           <span class="channel-card-title">
-            Channel ${index}${draft.name ? ` — ${draft.name}` : ""}
+            ${draft.name
+              ? t("settings.channels.channel_title_named", { index, name: draft.name })
+              : t("settings.channels.channel_title", { index })}
             ${isDirty ? html` <span style="color: var(--primary-color);">*</span>` : ""}
           </span>
           <span class="badge ${draft.role === "PRIMARY" ? "primary" : draft.role === "SECONDARY" ? "secondary" : ""}">${roleName}</span>
@@ -710,46 +724,46 @@ class MeshSettingsChannels extends LitElement {
           <div class="channel-card-body">
             <div class="form-grid">
               <mesh-select
-                label="Role"
+                label=${t("settings.channels.role")}
                 .value=${String(draft.role)}
-                .options=${CHANNEL_ROLES}
+                .options=${translateOptions(CHANNEL_ROLES)}
                 @change=${(e) => this._updateChannelField(index, "role", e.detail.value)}
               ></mesh-select>
 
               <mesh-text-input
-                label="Name"
+                label=${t("settings.channels.name")}
                 .value=${draft.name}
                 .maxlength=${11}
-                placeholder="Channel name"
+                placeholder=${t("settings.channels.name_placeholder")}
                 @change=${(e) => this._updateChannelField(index, "name", e.detail.value)}
               ></mesh-text-input>
             </div>
 
             <div style="margin-top: 16px;">
               <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 8px;">
-                Encryption Key (PSK)
+                ${t("settings.channels.psk_heading")}
               </div>
               <div class="psk-row">
                 <mesh-text-input
                   type="password"
                   .value=${draft.psk}
-                  placeholder="Base64 encoded key"
+                  placeholder=${t("settings.channels.psk_placeholder")}
                   @change=${(e) => this._updateChannelField(index, "psk", e.detail.value)}
                 ></mesh-text-input>
-                <button class="gen-btn" @click=${() => this._generatePsk(index)}>Generate</button>
+                <button class="gen-btn" @click=${() => this._generatePsk(index)}>${t("settings.channels.generate_psk")}</button>
               </div>
             </div>
 
             <div style="margin-top: 16px;">
               <mesh-toggle
-                label="Uplink Enabled"
-                description="Forward packets from this channel to MQTT"
+                label=${t("settings.channels.uplink_enabled")}
+                description=${t("settings.channels.uplink_enabled_desc")}
                 .checked=${draft.uplink_enabled}
                 @change=${(e) => this._updateChannelField(index, "uplink_enabled", e.detail.checked)}
               ></mesh-toggle>
               <mesh-toggle
-                label="Downlink Enabled"
-                description="Forward packets from MQTT to this channel"
+                label=${t("settings.channels.downlink_enabled")}
+                description=${t("settings.channels.downlink_enabled_desc")}
                 .checked=${draft.downlink_enabled}
                 @change=${(e) => this._updateChannelField(index, "downlink_enabled", e.detail.checked)}
               ></mesh-toggle>
@@ -757,11 +771,11 @@ class MeshSettingsChannels extends LitElement {
 
             ${isDirty ? html`
               <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-                <button class="gen-btn" @click=${() => { this._resetAllDrafts(); }}>Discard</button>
+                <button class="gen-btn" @click=${() => { this._resetAllDrafts(); }}>${t("settings.channels.discard")}</button>
                 <button class="gen-btn" style="background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color);"
                   ?disabled=${this._saving}
                   @click=${() => this._saveChannel(index)}>
-                  ${this._saving ? "Saving..." : "Save Channel"}
+                  ${this._saving ? t("settings.channels.saving") : t("settings.channels.save_channel")}
                 </button>
               </div>
             ` : ""}
@@ -850,23 +864,23 @@ class MeshSettingsUser extends LitElement {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>User Configuration</h3>
-          <p>Set the name and identity of your radio node on the mesh.</p>
+          <h3>${t("settings.user.title")}</h3>
+          <p>${t("settings.user.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-text-input
-              label="Long Name"
-              description="Your radio's display name on the mesh (max 39 chars)"
+              label=${t("settings.user.long_name")}
+              description=${t("settings.user.long_name_desc")}
               .value=${d.longName || ""}
               .maxlength=${39}
-              placeholder="My Meshtastic Radio"
+              placeholder=${t("settings.user.long_name_placeholder")}
               @change=${(e) => this._updateField("longName", e.detail.value)}
             ></mesh-text-input>
 
             <mesh-text-input
-              label="Short Name"
-              description="4-character abbreviation shown on compact displays"
+              label=${t("settings.user.short_name")}
+              description=${t("settings.user.short_name_desc")}
               .value=${d.shortName || ""}
               .maxlength=${4}
               placeholder="ABCD"
@@ -876,8 +890,8 @@ class MeshSettingsUser extends LitElement {
 
           <div class="settings-section">
             <mesh-toggle
-              label="Licensed Operator"
-              description="If enabled, your node will use HAM mode with longer names and no encryption"
+              label=${t("settings.user.licensed_operator")}
+              description=${t("settings.user.licensed_operator_desc")}
               .checked=${d.isLicensed === true}
               @change=${(e) => this._updateField("isLicensed", e.detail.checked)}
             ></mesh-toggle>
@@ -910,6 +924,7 @@ class MeshSettingsActions extends LitElement {
     super();
     this._confirmAction = null;
     this._feedback = "";
+    this._feedbackError = false;
   }
 
   static get styles() {
@@ -944,43 +959,43 @@ class MeshSettingsActions extends LitElement {
     const actions = [
       {
         id: "reboot",
-        name: "Reboot",
-        desc: "Restart the radio device",
+        name: t("settings.actions.reboot.name"),
+        desc: t("settings.actions.reboot.desc"),
         icon: "mdi:restart",
         danger: false,
       },
       {
         id: "shutdown",
-        name: "Shutdown",
-        desc: "Power off the radio device",
+        name: t("settings.actions.shutdown.name"),
+        desc: t("settings.actions.shutdown.desc"),
         icon: "mdi:power",
         danger: false,
       },
       {
         id: "reset_nodedb",
-        name: "Reset NodeDB",
-        desc: "Clear the mesh node database",
+        name: t("settings.actions.reset_nodedb.name"),
+        desc: t("settings.actions.reset_nodedb.desc"),
         icon: "mdi:database-remove",
         danger: true,
       },
       {
         id: "factory_reset_config",
-        name: "Factory Reset Config",
-        desc: "Reset all configuration to defaults",
+        name: t("settings.actions.factory_reset_config.name"),
+        desc: t("settings.actions.factory_reset_config.desc"),
         icon: "mdi:cog-refresh",
         danger: true,
       },
       {
         id: "factory_reset_device",
-        name: "Full Factory Reset",
-        desc: "Reset config and clear all data",
+        name: t("settings.actions.factory_reset_device.name"),
+        desc: t("settings.actions.factory_reset_device.desc"),
         icon: "mdi:delete-forever",
         danger: true,
       },
       {
         id: "reboot_ota",
-        name: "Reboot to OTA",
-        desc: "Reboot into OTA update mode",
+        name: t("settings.actions.reboot_ota.name"),
+        desc: t("settings.actions.reboot_ota.desc"),
         icon: "mdi:cellphone-arrow-down",
         danger: false,
       },
@@ -989,8 +1004,8 @@ class MeshSettingsActions extends LitElement {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Device Actions</h3>
-          <p>Manage and control your Meshtastic radio device. Destructive actions require confirmation.</p>
+          <h3>${t("settings.actions.title")}</h3>
+          <p>${t("settings.actions.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="device-actions-grid">
@@ -1006,7 +1021,7 @@ class MeshSettingsActions extends LitElement {
             `)}
           </div>
           ${this._feedback ? html`
-            <div class="feedback ${this._feedback.startsWith("Error") ? "error" : "success"}">
+            <div class="feedback ${this._feedbackError ? "error" : "success"}">
               ${this._feedback}
             </div>
           ` : ""}
@@ -1016,8 +1031,11 @@ class MeshSettingsActions extends LitElement {
       <mesh-confirm-dialog
         .open=${this._confirmAction != null}
         .title=${this._confirmAction?.name || ""}
-        .message=${`Are you sure you want to ${(this._confirmAction?.name || "").toLowerCase()}? ${this._confirmAction?.danger ? "This action cannot be undone." : ""}`}
-        .confirmLabel=${this._confirmAction?.name || "Confirm"}
+        .message=${t(
+          this._confirmAction?.danger ? "settings.actions.confirm_message_danger" : "settings.actions.confirm_message",
+          { action: (this._confirmAction?.name || "").toLowerCase() }
+        )}
+        .confirmLabel=${this._confirmAction?.name || t("common.confirm")}
         .danger=${this._confirmAction?.danger || false}
         @confirm=${this._executeAction}
         @cancel=${() => { this._confirmAction = null; this.requestUpdate(); }}
@@ -1042,11 +1060,10 @@ class MeshSettingsActions extends LitElement {
       action: action.id,
     });
 
-    if (result?.success) {
-      this._feedback = `${action.name} command sent successfully`;
-    } else {
-      this._feedback = `Error: ${action.name} command failed`;
-    }
+    this._feedbackError = !result?.success;
+    this._feedback = this._feedbackError
+      ? t("settings.actions.command_failed", { action: action.name })
+      : t("settings.actions.command_sent", { action: action.name });
     this.requestUpdate();
 
     setTimeout(() => {
@@ -1068,6 +1085,7 @@ class MeshSettingsStorage extends LitElement {
       _stats: { type: Object, state: true },
       _confirmAction: { type: Object, state: true },
       _feedback: { type: String, state: true },
+      _feedbackError: { type: Boolean, state: true },
     };
   }
 
@@ -1076,6 +1094,7 @@ class MeshSettingsStorage extends LitElement {
     this._stats = null;
     this._confirmAction = null;
     this._feedback = "";
+    this._feedbackError = false;
   }
 
   connectedCallback() {
@@ -1148,24 +1167,24 @@ class MeshSettingsStorage extends LitElement {
     const actions = [
       {
         id: "clear_messages",
-        name: "Clear Message History",
-        desc: "Delete all stored chat history (channels and DMs)",
+        name: t("settings.storage.clear_messages.name"),
+        desc: t("settings.storage.clear_messages.desc"),
         icon: "mdi:message-off",
         danger: true,
         wsType: "meshtastic_ui/clear_messages",
       },
       {
         id: "clear_nodes",
-        name: "Clear Node History",
-        desc: "Delete all tracked nodes and traceroute results",
+        name: t("settings.storage.clear_nodes.name"),
+        desc: t("settings.storage.clear_nodes.desc"),
         icon: "mdi:database-remove",
         danger: true,
         wsType: "meshtastic_ui/clear_nodes",
       },
       {
         id: "clear_all",
-        name: "Clear All Stored Data",
-        desc: "Wipe messages, nodes, traceroutes, waypoints, favorites, and ignored",
+        name: t("settings.storage.clear_all.name"),
+        desc: t("settings.storage.clear_all.desc"),
         icon: "mdi:delete-sweep",
         danger: true,
         wsType: "meshtastic_ui/clear_all",
@@ -1175,30 +1194,30 @@ class MeshSettingsStorage extends LitElement {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Storage</h3>
-          <p>Manage data this integration has stored locally in Home Assistant. Useful when switching to a new radio or starting fresh.</p>
+          <h3>${t("settings.storage.title")}</h3>
+          <p>${t("settings.storage.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-num">${s.messages ?? "—"}</div>
-              <div class="stat-label">Messages</div>
+              <div class="stat-label">${t("settings.storage.stats.messages")}</div>
             </div>
             <div class="stat-card">
               <div class="stat-num">${s.conversations ?? "—"}</div>
-              <div class="stat-label">Conversations</div>
+              <div class="stat-label">${t("settings.storage.stats.conversations")}</div>
             </div>
             <div class="stat-card">
               <div class="stat-num">${s.nodes ?? "—"}</div>
-              <div class="stat-label">Nodes</div>
+              <div class="stat-label">${t("settings.storage.stats.nodes")}</div>
             </div>
             <div class="stat-card">
               <div class="stat-num">${s.traceroutes ?? "—"}</div>
-              <div class="stat-label">Traceroutes</div>
+              <div class="stat-label">${t("settings.storage.stats.traceroutes")}</div>
             </div>
             <div class="stat-card">
               <div class="stat-num">${s.waypoints ?? "—"}</div>
-              <div class="stat-label">Waypoints</div>
+              <div class="stat-label">${t("settings.storage.stats.waypoints")}</div>
             </div>
           </div>
 
@@ -1215,7 +1234,7 @@ class MeshSettingsStorage extends LitElement {
             `)}
           </div>
           ${this._feedback ? html`
-            <div class="feedback ${this._feedback.startsWith("Error") ? "error" : "success"}">
+            <div class="feedback ${this._feedbackError ? "error" : "success"}">
               ${this._feedback}
             </div>
           ` : ""}
@@ -1225,8 +1244,8 @@ class MeshSettingsStorage extends LitElement {
       <mesh-confirm-dialog
         .open=${this._confirmAction != null}
         .title=${this._confirmAction?.name || ""}
-        .message=${`Are you sure you want to ${(this._confirmAction?.name || "").toLowerCase()}? This action cannot be undone.`}
-        .confirmLabel=${this._confirmAction?.name || "Confirm"}
+        .message=${t("settings.storage.confirm_message", { action: (this._confirmAction?.name || "").toLowerCase() })}
+        .confirmLabel=${this._confirmAction?.name || t("common.confirm")}
         .danger=${true}
         @confirm=${this._executeAction}
         @cancel=${() => { this._confirmAction = null; }}
@@ -1246,14 +1265,16 @@ class MeshSettingsStorage extends LitElement {
 
     const result = await this.wsCommand(action.wsType);
     if (result != null) {
-      this._feedback = `${action.name} done`;
+      this._feedbackError = false;
+      this._feedback = t("settings.storage.done", { action: action.name });
       await this._loadStats();
       // Tell the panel to refresh its in-memory caches.
       this.dispatchEvent(new CustomEvent("storage-cleared", {
         detail: { kind: action.id }, bubbles: true, composed: true,
       }));
     } else {
-      this._feedback = `Error: ${action.name} failed`;
+      this._feedbackError = true;
+      this._feedback = t("settings.storage.failed", { action: action.name });
     }
     setTimeout(() => { this._feedback = ""; }, 5000);
   }
@@ -1343,38 +1364,38 @@ class MeshSettingsDevice extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Device Configuration</h3>
-          <p>Configure the device role, rebroadcast mode, and hardware options.</p>
+          <h3>${t("settings.device.title")}</h3>
+          <p>${t("settings.device.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-select
-              label="Device Role"
-              description="Determines how the device behaves on the mesh"
+              label=${t("settings.device.device_role")}
+              description=${t("settings.device.device_role_desc")}
               .value=${String(d.role || "CLIENT")}
-              .options=${DEVICE_ROLES}
+              .options=${translateOptions(DEVICE_ROLES)}
               @change=${(e) => this._updateField("role", e.detail.value)}
             ></mesh-select>
 
             <mesh-select
-              label="Rebroadcast Mode"
-              description="Controls which messages this node rebroadcasts"
+              label=${t("settings.device.rebroadcast_mode")}
+              description=${t("settings.device.rebroadcast_mode_desc")}
               .value=${String(d.rebroadcast_mode || "ALL")}
-              .options=${REBROADCAST_MODES}
+              .options=${translateOptions(REBROADCAST_MODES)}
               @change=${(e) => this._updateField("rebroadcast_mode", e.detail.value)}
             ></mesh-select>
 
             <mesh-number-input
-              label="Node Info Broadcast Secs"
-              description="How often to broadcast node info (seconds, 0 = default)"
+              label=${t("settings.device.node_info_broadcast_secs")}
+              description=${t("settings.device.node_info_broadcast_secs_desc")}
               .value=${d.node_info_broadcast_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("node_info_broadcast_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Button GPIO"
-              description="GPIO pin for user button (0 = default)"
+              label=${t("settings.device.button_gpio")}
+              description=${t("settings.device.button_gpio_desc")}
               .value=${d.button_gpio ?? 0}
               .min=${0}
               .max=${48}
@@ -1382,8 +1403,8 @@ class MeshSettingsDevice extends ConfigSectionPanel {
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Buzzer GPIO"
-              description="GPIO pin for buzzer (0 = default)"
+              label=${t("settings.device.buzzer_gpio")}
+              description=${t("settings.device.buzzer_gpio_desc")}
               .value=${d.buzzer_gpio ?? 0}
               .min=${0}
               .max=${48}
@@ -1393,17 +1414,17 @@ class MeshSettingsDevice extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="Double Tap as Button Press"
-              description="Use double-tap on the device as a button press"
+              label=${t("settings.device.double_tap_as_button_press")}
+              description=${t("settings.device.double_tap_as_button_press_desc")}
               .checked=${d.double_tap_as_button_press === true}
               @change=${(e) => this._updateField("double_tap_as_button_press", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="LED Heartbeat Disabled"
-              description="Disable the LED heartbeat indicator"
+              label=${t("settings.device.led_heartbeat_disabled")}
+              description=${t("settings.device.led_heartbeat_disabled_desc")}
               .checked=${d.led_heartbeat_disabled === true}
               @change=${(e) => this._updateField("led_heartbeat_disabled", e.detail.checked)}
             ></mesh-toggle>
@@ -1433,54 +1454,54 @@ class MeshSettingsPosition extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Position Configuration</h3>
-          <p>Configure GPS, fixed position, and position broadcast settings.</p>
+          <h3>${t("settings.position.title")}</h3>
+          <p>${t("settings.position.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-select
-              label="GPS Mode"
-              description="How the device obtains its position"
+              label=${t("settings.position.gps_mode")}
+              description=${t("settings.position.gps_mode_desc")}
               .value=${String(d.gps_mode || "ENABLED")}
-              .options=${GPS_MODES}
+              .options=${translateOptions(GPS_MODES)}
               @change=${(e) => this._updateField("gps_mode", e.detail.value)}
             ></mesh-select>
 
             <mesh-number-input
-              label="Position Broadcast Secs"
-              description="How often to broadcast position (seconds, 0 = default)"
+              label=${t("settings.position.position_broadcast_secs")}
+              description=${t("settings.position.position_broadcast_secs_desc")}
               .value=${d.position_broadcast_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("position_broadcast_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Broadcast Smart Min Distance (m)"
-              description="Min distance to move before broadcasting (0 = disabled)"
+              label=${t("settings.position.broadcast_smart_min_distance")}
+              description=${t("settings.position.broadcast_smart_min_distance_desc")}
               .value=${d.broadcast_smart_minimum_distance ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("broadcast_smart_minimum_distance", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Broadcast Smart Min Interval (secs)"
-              description="Min interval between smart broadcasts"
+              label=${t("settings.position.broadcast_smart_min_interval")}
+              description=${t("settings.position.broadcast_smart_min_interval_desc")}
               .value=${d.broadcast_smart_minimum_interval_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("broadcast_smart_minimum_interval_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="GPS Update Interval (secs)"
-              description="How often the GPS hardware checks position"
+              label=${t("settings.position.gps_update_interval")}
+              description=${t("settings.position.gps_update_interval_desc")}
               .value=${d.gps_update_interval ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("gps_update_interval", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="RX GPIO"
-              description="GPIO pin for GPS RX (0 = default)"
+              label=${t("settings.position.rx_gpio")}
+              description=${t("settings.position.rx_gpio_desc")}
               .value=${d.rx_gpio ?? 0}
               .min=${0}
               .max=${48}
@@ -1488,8 +1509,8 @@ class MeshSettingsPosition extends ConfigSectionPanel {
             ></mesh-number-input>
 
             <mesh-number-input
-              label="TX GPIO"
-              description="GPIO pin for GPS TX (0 = default)"
+              label=${t("settings.position.tx_gpio")}
+              description=${t("settings.position.tx_gpio_desc")}
               .value=${d.tx_gpio ?? 0}
               .min=${0}
               .max=${48}
@@ -1499,30 +1520,30 @@ class MeshSettingsPosition extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Fixed Position
+              ${t("settings.position.fixed_position_heading")}
             </div>
             <mesh-toggle
-              label="Fixed Position"
-              description="Use a fixed position instead of GPS"
+              label=${t("settings.position.fixed_position")}
+              description=${t("settings.position.fixed_position_desc")}
               .checked=${d.fixed_position === true}
               @change=${(e) => this._updateField("fixed_position", e.detail.checked)}
             ></mesh-toggle>
             ${d.fixed_position ? html`
               <div class="form-grid" style="margin-top: 12px;">
                 <mesh-number-input
-                  label="Latitude"
+                  label=${t("settings.position.latitude")}
                   .value=${d.fixed_lat ?? 0}
                   .step=${0.000001}
                   @change=${(e) => this._updateField("fixed_lat", e.detail.value)}
                 ></mesh-number-input>
                 <mesh-number-input
-                  label="Longitude"
+                  label=${t("settings.position.longitude")}
                   .value=${d.fixed_lng ?? 0}
                   .step=${0.000001}
                   @change=${(e) => this._updateField("fixed_lng", e.detail.value)}
                 ></mesh-number-input>
                 <mesh-number-input
-                  label="Altitude (m)"
+                  label=${t("settings.position.altitude")}
                   .value=${d.fixed_altitude ?? 0}
                   @change=${(e) => this._updateField("fixed_altitude", e.detail.value)}
                 ></mesh-number-input>
@@ -1532,17 +1553,17 @@ class MeshSettingsPosition extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="Smart Position Broadcast"
-              description="Only broadcast position when movement is detected"
+              label=${t("settings.position.smart_position_broadcast")}
+              description=${t("settings.position.smart_position_broadcast_desc")}
               .checked=${d.position_broadcast_smart_enabled === true}
               @change=${(e) => this._updateField("position_broadcast_smart_enabled", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="GPS Enabled"
-              description="Enable the onboard GPS hardware"
+              label=${t("settings.position.gps_enabled")}
+              description=${t("settings.position.gps_enabled_desc")}
               .checked=${d.gps_enabled === true}
               @change=${(e) => this._updateField("gps_enabled", e.detail.checked)}
             ></mesh-toggle>
@@ -1572,46 +1593,46 @@ class MeshSettingsPower extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Power Configuration</h3>
-          <p>Configure power saving, sleep behavior, and battery management.</p>
+          <h3>${t("settings.power.title")}</h3>
+          <p>${t("settings.power.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-number-input
-              label="On Battery Shutdown After (secs)"
-              description="Auto-shutdown after this many seconds on battery (0 = disabled)"
+              label=${t("settings.power.on_battery_shutdown_after")}
+              description=${t("settings.power.on_battery_shutdown_after_desc")}
               .value=${d.on_battery_shutdown_after_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("on_battery_shutdown_after_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Min Wake Secs"
-              description="Minimum time to stay awake (seconds)"
+              label=${t("settings.power.min_wake_secs")}
+              description=${t("settings.power.min_wake_secs_desc")}
               .value=${d.min_wake_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("min_wake_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Light Sleep Interval (secs)"
-              description="Light sleep interval for power saving"
+              label=${t("settings.power.light_sleep_interval")}
+              description=${t("settings.power.light_sleep_interval_desc")}
               .value=${d.ls_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("ls_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Wait Bluetooth Secs"
-              description="Seconds to wait for Bluetooth before sleeping"
+              label=${t("settings.power.wait_bluetooth_secs")}
+              description=${t("settings.power.wait_bluetooth_secs_desc")}
               .value=${d.wait_bluetooth_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("wait_bluetooth_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="ADC Multiplier Override"
-              description="Override voltage divider ratio for battery reading (0 = auto)"
+              label=${t("settings.power.adc_multiplier_override")}
+              description=${t("settings.power.adc_multiplier_override_desc")}
               .value=${d.adc_multiplier_override ?? 0}
               .min=${0}
               .step=${0.01}
@@ -1621,11 +1642,11 @@ class MeshSettingsPower extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="Power Saving"
-              description="Enable power saving mode (light sleep between operations)"
+              label=${t("settings.power.power_saving")}
+              description=${t("settings.power.power_saving_desc")}
               .checked=${d.is_power_saving === true}
               @change=${(e) => this._updateField("is_power_saving", e.detail.checked)}
             ></mesh-toggle>
@@ -1655,8 +1676,8 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Network Configuration</h3>
-          <p>Configure WiFi, Ethernet, NTP server, and syslog settings.</p>
+          <h3>${t("settings.network.title")}</h3>
+          <p>${t("settings.network.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="settings-section">
@@ -1664,24 +1685,24 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
               WiFi
             </div>
             <mesh-toggle
-              label="WiFi Enabled"
-              description="Enable WiFi connectivity"
+              label=${t("settings.network.wifi_enabled")}
+              description=${t("settings.network.wifi_enabled_desc")}
               .checked=${d.wifi_enabled === true}
               @change=${(e) => this._updateField("wifi_enabled", e.detail.checked)}
             ></mesh-toggle>
             ${d.wifi_enabled ? html`
               <div class="form-grid" style="margin-top: 12px;">
                 <mesh-text-input
-                  label="WiFi SSID"
+                  label=${t("settings.network.wifi_ssid")}
                   .value=${d.wifi_ssid || ""}
-                  placeholder="Network name"
+                  placeholder=${t("settings.network.wifi_ssid_placeholder")}
                   @change=${(e) => this._updateField("wifi_ssid", e.detail.value)}
                 ></mesh-text-input>
                 <mesh-text-input
-                  label="WiFi Password"
+                  label=${t("settings.network.wifi_password")}
                   type="password"
                   .value=${d.wifi_psk || ""}
-                  placeholder="Password"
+                  placeholder=${t("settings.network.wifi_password_placeholder")}
                   @change=${(e) => this._updateField("wifi_psk", e.detail.value)}
                 ></mesh-text-input>
               </div>
@@ -1693,8 +1714,8 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
               Ethernet
             </div>
             <mesh-toggle
-              label="Ethernet Enabled"
-              description="Enable Ethernet connectivity"
+              label=${t("settings.network.ethernet_enabled")}
+              description=${t("settings.network.ethernet_enabled_desc")}
               .checked=${d.eth_enabled === true}
               @change=${(e) => this._updateField("eth_enabled", e.detail.checked)}
             ></mesh-toggle>
@@ -1702,30 +1723,30 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              IP Configuration
+              ${t("settings.network.ip_heading")}
             </div>
             <div class="form-grid">
               <mesh-text-input
-                label="IPv4 Address"
-                description="Static IPv4 address (leave empty for DHCP)"
+                label=${t("settings.network.ipv4_address")}
+                description=${t("settings.network.ipv4_address_desc")}
                 .value=${d.ipv4_config?.ip ? this._intToIp(d.ipv4_config.ip) : ""}
                 placeholder="0.0.0.0"
                 @change=${(e) => this._updateField("ipv4_config", { ...d.ipv4_config, ip: this._ipToInt(e.detail.value) })}
               ></mesh-text-input>
               <mesh-text-input
-                label="Gateway"
+                label=${t("settings.network.gateway")}
                 .value=${d.ipv4_config?.gateway ? this._intToIp(d.ipv4_config.gateway) : ""}
                 placeholder="0.0.0.0"
                 @change=${(e) => this._updateField("ipv4_config", { ...d.ipv4_config, gateway: this._ipToInt(e.detail.value) })}
               ></mesh-text-input>
               <mesh-text-input
-                label="Subnet Mask"
+                label=${t("settings.network.subnet_mask")}
                 .value=${d.ipv4_config?.subnet ? this._intToIp(d.ipv4_config.subnet) : ""}
                 placeholder="255.255.255.0"
                 @change=${(e) => this._updateField("ipv4_config", { ...d.ipv4_config, subnet: this._ipToInt(e.detail.value) })}
               ></mesh-text-input>
               <mesh-text-input
-                label="DNS Server"
+                label=${t("settings.network.dns_server")}
                 .value=${d.ipv4_config?.dns ? this._intToIp(d.ipv4_config.dns) : ""}
                 placeholder="0.0.0.0"
                 @change=${(e) => this._updateField("ipv4_config", { ...d.ipv4_config, dns: this._ipToInt(e.detail.value) })}
@@ -1735,19 +1756,19 @@ class MeshSettingsNetwork extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Services
+              ${t("settings.network.services_heading")}
             </div>
             <div class="form-grid">
               <mesh-text-input
-                label="NTP Server"
-                description="Custom NTP server address"
+                label=${t("settings.network.ntp_server")}
+                description=${t("settings.network.ntp_server_desc")}
                 .value=${d.ntp_server || ""}
                 placeholder="0.pool.ntp.org"
                 @change=${(e) => this._updateField("ntp_server", e.detail.value)}
               ></mesh-text-input>
               <mesh-text-input
-                label="Syslog Server"
-                description="Remote syslog server (host:port)"
+                label=${t("settings.network.syslog_server")}
+                description=${t("settings.network.syslog_server_desc")}
                 .value=${d.rsyslog_server || ""}
                 placeholder="192.168.1.100:514"
                 @change=${(e) => this._updateField("rsyslog_server", e.detail.value)}
@@ -1791,53 +1812,53 @@ class MeshSettingsDisplay extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Display Configuration</h3>
-          <p>Configure screen timeout, units, OLED type, and display options.</p>
+          <h3>${t("settings.display.title")}</h3>
+          <p>${t("settings.display.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="form-grid">
             <mesh-number-input
-              label="Screen On Secs"
-              description="How long the screen stays on (0 = always on)"
+              label=${t("settings.display.screen_on_secs")}
+              description=${t("settings.display.screen_on_secs_desc")}
               .value=${d.screen_on_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("screen_on_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-number-input
-              label="Auto Carousel Secs"
-              description="Seconds between auto-cycling pages (0 = disabled)"
+              label=${t("settings.display.auto_carousel_secs")}
+              description=${t("settings.display.auto_carousel_secs_desc")}
               .value=${d.auto_screen_carousel_secs ?? 0}
               .min=${0}
               @change=${(e) => this._updateField("auto_screen_carousel_secs", e.detail.value)}
             ></mesh-number-input>
 
             <mesh-select
-              label="Display Units"
+              label=${t("settings.display.display_units")}
               .value=${String(d.units || "METRIC")}
-              .options=${DISPLAY_UNITS}
+              .options=${translateOptions(DISPLAY_UNITS)}
               @change=${(e) => this._updateField("units", e.detail.value)}
             ></mesh-select>
 
             <mesh-select
-              label="Display Mode"
-              description="Color mode for the display"
+              label=${t("settings.display.display_mode")}
+              description=${t("settings.display.display_mode_desc")}
               .value=${String(d.displaymode || "DEFAULT")}
-              .options=${DISPLAY_MODES}
+              .options=${translateOptions(DISPLAY_MODES)}
               @change=${(e) => this._updateField("displaymode", e.detail.value)}
             ></mesh-select>
 
             <mesh-select
-              label="OLED Type"
-              description="OLED display hardware type"
+              label=${t("settings.display.oled_type")}
+              description=${t("settings.display.oled_type_desc")}
               .value=${String(d.oled || "OLED_AUTO")}
-              .options=${OLED_TYPES}
+              .options=${translateOptions(OLED_TYPES)}
               @change=${(e) => this._updateField("oled", e.detail.value)}
             ></mesh-select>
 
             <mesh-number-input
-              label="Heading Bold"
-              description="Use bold for heading text (0 = no, 1 = yes)"
+              label=${t("settings.display.heading_bold")}
+              description=${t("settings.display.heading_bold_desc")}
               .value=${d.heading_bold ? 1 : 0}
               .min=${0}
               .max=${1}
@@ -1847,23 +1868,23 @@ class MeshSettingsDisplay extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="Flip Screen"
-              description="Rotate the display 180 degrees"
+              label=${t("settings.display.flip_screen")}
+              description=${t("settings.display.flip_screen_desc")}
               .checked=${d.flip_screen === true}
               @change=${(e) => this._updateField("flip_screen", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Wake on Tap or Motion"
-              description="Wake the screen when motion is detected"
+              label=${t("settings.display.wake_on_tap_or_motion")}
+              description=${t("settings.display.wake_on_tap_or_motion_desc")}
               .checked=${d.wake_on_tap_or_motion === true}
               @change=${(e) => this._updateField("wake_on_tap_or_motion", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Compass North Top"
-              description="Always orient compass with north at top"
+              label=${t("settings.display.compass_north_top")}
+              description=${t("settings.display.compass_north_top_desc")}
               .checked=${d.compass_north_top === true}
               @change=${(e) => this._updateField("compass_north_top", e.detail.checked)}
             ></mesh-toggle>
@@ -1893,14 +1914,14 @@ class MeshSettingsBluetooth extends ConfigSectionPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Bluetooth Configuration</h3>
-          <p>Configure Bluetooth connectivity, pairing mode, and PIN.</p>
+          <h3>${t("settings.bluetooth.title")}</h3>
+          <p>${t("settings.bluetooth.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="settings-section">
             <mesh-toggle
-              label="Bluetooth Enabled"
-              description="Enable Bluetooth radio"
+              label=${t("settings.bluetooth.bluetooth_enabled")}
+              description=${t("settings.bluetooth.bluetooth_enabled_desc")}
               .checked=${d.enabled !== false}
               @change=${(e) => this._updateField("enabled", e.detail.checked)}
             ></mesh-toggle>
@@ -1910,17 +1931,17 @@ class MeshSettingsBluetooth extends ConfigSectionPanel {
             <div class="settings-section">
               <div class="form-grid">
                 <mesh-select
-                  label="Pairing Mode"
-                  description="How the device pairs with Bluetooth clients"
+                  label=${t("settings.bluetooth.pairing_mode")}
+                  description=${t("settings.bluetooth.pairing_mode_desc")}
                   .value=${String(d.mode || "RANDOM_PIN")}
-                  .options=${BT_PAIRING_MODES}
+                  .options=${translateOptions(BT_PAIRING_MODES)}
                   @change=${(e) => this._updateField("mode", e.detail.value)}
                 ></mesh-select>
 
                 ${String(d.mode) === "FIXED_PIN" ? html`
                   <mesh-number-input
-                    label="Fixed PIN"
-                    description="6-digit pairing PIN"
+                    label=${t("settings.bluetooth.fixed_pin")}
+                    description=${t("settings.bluetooth.fixed_pin_desc")}
                     .value=${d.fixed_pin ?? 123456}
                     .min=${100000}
                     .max=${999999}
@@ -2002,25 +2023,25 @@ class MeshSettingsSecurity extends ConfigSectionPanel {
 
     // Try to display public key from config
     const pubKey = this.config?.owner?.publicKey || d.public_key || "";
-    const privKey = d.private_key ? "(set)" : "(not set)";
+    const privKey = d.private_key ? t("settings.security.key_set") : t("settings.security.key_not_set");
 
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Security Configuration</h3>
-          <p>View PKI keys, configure admin channel, and debug logging settings.</p>
+          <h3>${t("settings.security.title")}</h3>
+          <p>${t("settings.security.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              PKI Keys (Read Only)
+              ${t("settings.security.pki_heading")}
             </div>
             <div class="key-section">
-              <div class="key-label">Public Key</div>
-              <div class="key-display">${pubKey || "Not available"}</div>
+              <div class="key-label">${t("settings.security.public_key")}</div>
+              <div class="key-display">${pubKey || t("settings.security.key_unavailable")}</div>
             </div>
             <div class="key-section">
-              <div class="key-label">Private Key</div>
+              <div class="key-label">${t("settings.security.private_key")}</div>
               <div class="key-display">${privKey}</div>
             </div>
           </div>
@@ -2028,8 +2049,8 @@ class MeshSettingsSecurity extends ConfigSectionPanel {
           <div class="settings-section">
             <div class="form-grid">
               <mesh-number-input
-                label="Admin Channel Index"
-                description="Channel index used for admin messages (0 = primary)"
+                label=${t("settings.security.admin_channel_index")}
+                description=${t("settings.security.admin_channel_index_desc")}
                 .value=${d.admin_channel_enabled ?? 0}
                 .min=${0}
                 .max=${7}
@@ -2040,23 +2061,23 @@ class MeshSettingsSecurity extends ConfigSectionPanel {
 
           <div class="settings-section">
             <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--secondary-text-color); letter-spacing: 0.5px; margin-bottom: 12px;">
-              Options
+              ${t("settings.options_heading")}
             </div>
             <mesh-toggle
-              label="Debug Log Enabled"
-              description="Enable verbose debug logging on the device"
+              label=${t("settings.security.debug_log_enabled")}
+              description=${t("settings.security.debug_log_enabled_desc")}
               .checked=${d.debug_log_api_enabled === true}
               @change=${(e) => this._updateField("debug_log_api_enabled", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Admin Key Required"
-              description="Require admin key for remote administration"
+              label=${t("settings.security.admin_key_required")}
+              description=${t("settings.security.admin_key_required_desc")}
               .checked=${d.is_managed === true}
               @change=${(e) => this._updateField("is_managed", e.detail.checked)}
             ></mesh-toggle>
             <mesh-toggle
-              label="Serial Console Disabled"
-              description="Disable serial console access for security"
+              label=${t("settings.security.serial_console_disabled")}
+              description=${t("settings.security.serial_console_disabled_desc")}
               .checked=${d.serial_enabled === false}
               @change=${(e) => this._updateField("serial_enabled", !e.detail.checked)}
             ></mesh-toggle>

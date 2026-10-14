@@ -4,6 +4,7 @@ import {
   css,
 } from "./vendor/lit/lit-element.js";
 import "./components.js";
+import { t } from "./i18n.js";
 import {
   settingsStyles,
   formStyles,
@@ -13,7 +14,7 @@ import {
 /* ── Enum maps ── */
 
 const SERIAL_BAUD_RATES = [
-  { value: "BAUD_DEFAULT", label: "Default" },
+  { value: "BAUD_DEFAULT", labelKey: "modules.options.default" },
   { value: "BAUD_110", label: "110" },
   { value: "BAUD_300", label: "300" },
   { value: "BAUD_600", label: "600" },
@@ -32,31 +33,51 @@ const SERIAL_BAUD_RATES = [
 ];
 
 const SERIAL_MODES = [
-  { value: "DEFAULT", label: "Default" },
-  { value: "SIMPLE", label: "Simple" },
+  { value: "DEFAULT", labelKey: "modules.options.default" },
+  { value: "SIMPLE", labelKey: "modules.options.simple" },
   { value: "PROTO", label: "Protobuf" },
-  { value: "TEXTMSG", label: "Text Message" },
+  { value: "TEXTMSG", labelKey: "modules.options.text_message" },
   { value: "NMEA", label: "NMEA" },
   { value: "CALTOPO", label: "CalTopo" },
 ];
 
 const CANNED_MSG_INPUT_EVENTS = [
-  { value: "NONE", label: "None" },
-  { value: "UP_DOWN_SELECT", label: "Up/Down/Select" },
-  { value: "ROTARY", label: "Rotary Encoder" },
+  { value: "NONE", labelKey: "common.none" },
+  { value: "UP_DOWN_SELECT", labelKey: "modules.options.up_down_select" },
+  { value: "ROTARY", labelKey: "modules.options.rotary_encoder" },
 ];
 
 const CODEC2_RATES = [
-  { value: "CODEC2_DEFAULT", label: "Default" },
-  { value: "CODEC2_3200", label: "3200 bps" },
-  { value: "CODEC2_2400", label: "2400 bps" },
-  { value: "CODEC2_1600", label: "1600 bps" },
-  { value: "CODEC2_1400", label: "1400 bps" },
-  { value: "CODEC2_1300", label: "1300 bps" },
-  { value: "CODEC2_1200", label: "1200 bps" },
-  { value: "CODEC2_700B", label: "700B bps" },
-  { value: "CODEC2_700", label: "700 bps" },
+  { value: "CODEC2_DEFAULT", labelKey: "modules.options.default" },
+  { value: "CODEC2_3200", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "3200" } },
+  { value: "CODEC2_2400", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "2400" } },
+  { value: "CODEC2_1600", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "1600" } },
+  { value: "CODEC2_1400", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "1400" } },
+  { value: "CODEC2_1300", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "1300" } },
+  { value: "CODEC2_1200", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "1200" } },
+  { value: "CODEC2_700B", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "700B" } },
+  { value: "CODEC2_700", labelKey: "modules.options.bitrate_bps", labelParams: { rate: "700" } },
 ];
+
+/**
+ * Resolve option labels at render time. The constants above are evaluated at
+ * import, before the panel sets the language, so they carry a labelKey (plus
+ * optional labelParams) instead of a translated label. Numeric labels stay literal.
+ */
+function translateOptions(options) {
+  return options.map((option) => ({
+    value: option.value,
+    label: option.labelKey ? t(option.labelKey, option.labelParams) : option.label,
+  }));
+}
+
+/** Split a translated string on {placeholder} tokens and swap in Lit templates. */
+function withTemplates(text, parts) {
+  return text.split(/(\{\w+\})/).map((piece) => {
+    const match = piece.match(/^\{(\w+)\}$/);
+    return match && match[1] in parts ? parts[match[1]] : piece;
+  });
+}
 
 /* ── Base class for module config panels ── */
 
@@ -184,51 +205,51 @@ class MeshSettingsMqtt extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>MQTT Configuration</h3>
-          <p>Configure MQTT broker connection, encryption, and map reporting.</p>
+          <h3>${t("modules.mqtt.title")}</h3>
+          <p>${t("modules.mqtt.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <mesh-toggle
-            label="MQTT Enabled"
-            description="Enable MQTT client on this device"
+            label=${t("modules.mqtt.enabled")}
+            description=${t("modules.mqtt.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}
           ></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
-              ${this._sectionTitle("Broker")}
+              ${this._sectionTitle(t("modules.mqtt.broker"))}
               <div class="form-grid">
-                <mesh-text-input label="Address" description="MQTT broker hostname or IP"
+                <mesh-text-input label=${t("modules.mqtt.address")} description=${t("modules.mqtt.address_desc")}
                   .value=${d.address || ""} placeholder="mqtt.meshtastic.org"
                   @change=${(e) => this._updateField("address", e.detail.value)}></mesh-text-input>
-                <mesh-number-input label="Port" .value=${d.port ?? 1883} .min=${1} .max=${65535}
+                <mesh-number-input label=${t("modules.mqtt.port")} .value=${d.port ?? 1883} .min=${1} .max=${65535}
                   @change=${(e) => this._updateField("port", e.detail.value)}></mesh-number-input>
-                <mesh-text-input label="Username" .value=${d.username || ""}
+                <mesh-text-input label=${t("modules.mqtt.username")} .value=${d.username || ""}
                   @change=${(e) => this._updateField("username", e.detail.value)}></mesh-text-input>
-                <mesh-text-input label="Password" type="password" .value=${d.password || ""}
+                <mesh-text-input label=${t("modules.mqtt.password")} type="password" .value=${d.password || ""}
                   @change=${(e) => this._updateField("password", e.detail.value)}></mesh-text-input>
-                <mesh-text-input label="Root Topic" description="MQTT root topic"
+                <mesh-text-input label=${t("modules.mqtt.root_topic")} description=${t("modules.mqtt.root_topic_desc")}
                   .value=${d.root || ""} placeholder="msh"
                   @change=${(e) => this._updateField("root", e.detail.value)}></mesh-text-input>
               </div>
             </div>
 
             <div class="settings-section">
-              ${this._sectionTitle("Options")}
-              <mesh-toggle label="Encryption Enabled" description="Encrypt MQTT traffic"
+              ${this._sectionTitle(t("modules.mqtt.options"))}
+              <mesh-toggle label=${t("modules.mqtt.encryption")} description=${t("modules.mqtt.encryption_desc")}
                 .checked=${d.encryption_enabled === true}
                 @change=${(e) => this._updateField("encryption_enabled", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="JSON Enabled" description="Send JSON-formatted messages to MQTT"
+              <mesh-toggle label=${t("modules.mqtt.json")} description=${t("modules.mqtt.json_desc")}
                 .checked=${d.json_enabled === true}
                 @change=${(e) => this._updateField("json_enabled", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="TLS Enabled" description="Use TLS for broker connection"
+              <mesh-toggle label=${t("modules.mqtt.tls")} description=${t("modules.mqtt.tls_desc")}
                 .checked=${d.tls_enabled === true}
                 @change=${(e) => this._updateField("tls_enabled", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Proxy to Client Enabled" description="Proxy MQTT traffic through connected client"
+              <mesh-toggle label=${t("modules.mqtt.proxy_to_client")} description=${t("modules.mqtt.proxy_to_client_desc")}
                 .checked=${d.proxy_to_client_enabled === true}
                 @change=${(e) => this._updateField("proxy_to_client_enabled", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Map Reporting Enabled" description="Report position to the Meshtastic map"
+              <mesh-toggle label=${t("modules.mqtt.map_reporting")} description=${t("modules.mqtt.map_reporting_desc")}
                 .checked=${d.map_reporting_enabled === true}
                 @change=${(e) => this._updateField("map_reporting_enabled", e.detail.checked)}></mesh-toggle>
             </div>
@@ -254,37 +275,37 @@ class MeshSettingsSerial extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Serial Module</h3>
-          <p>Configure the serial interface module for external device communication.</p>
+          <h3>${t("modules.serial.title")}</h3>
+          <p>${t("modules.serial.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable serial module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.serial.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-select label="Baud Rate" .value=${String(d.baud || "BAUD_DEFAULT")}
-                  .options=${SERIAL_BAUD_RATES}
+                <mesh-select label=${t("modules.serial.baud_rate")} .value=${String(d.baud || "BAUD_DEFAULT")}
+                  .options=${translateOptions(SERIAL_BAUD_RATES)}
                   @change=${(e) => this._updateField("baud", e.detail.value)}></mesh-select>
-                <mesh-select label="Mode" description="Serial communication protocol"
+                <mesh-select label=${t("modules.serial.mode")} description=${t("modules.serial.mode_desc")}
                   .value=${String(d.mode || "DEFAULT")}
-                  .options=${SERIAL_MODES}
+                  .options=${translateOptions(SERIAL_MODES)}
                   @change=${(e) => this._updateField("mode", e.detail.value)}></mesh-select>
-                <mesh-number-input label="RX GPIO" .value=${d.rxd ?? 0} .min=${0} .max=${48}
+                <mesh-number-input label=${t("modules.serial.rx_gpio")} .value=${d.rxd ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("rxd", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="TX GPIO" .value=${d.txd ?? 0} .min=${0} .max=${48}
+                <mesh-number-input label=${t("modules.serial.tx_gpio")} .value=${d.txd ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("txd", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Timeout (ms)" description="Serial timeout in milliseconds"
+                <mesh-number-input label=${t("modules.serial.timeout")} description=${t("modules.serial.timeout_desc")}
                   .value=${d.timeout ?? 0} .min=${0}
                   @change=${(e) => this._updateField("timeout", e.detail.value)}></mesh-number-input>
               </div>
-              <mesh-toggle label="Echo" description="Echo received serial data back"
+              <mesh-toggle label=${t("modules.serial.echo")} description=${t("modules.serial.echo_desc")}
                 .checked=${d.echo === true}
                 @change=${(e) => this._updateField("echo", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Override Console Serial Port"
-                description="Use the main serial port for this module"
+              <mesh-toggle label=${t("modules.serial.override_console")}
+                description=${t("modules.serial.override_console_desc")}
                 .checked=${d.override_console_serial_port === true}
                 @change=${(e) => this._updateField("override_console_serial_port", e.detail.checked)}></mesh-toggle>
             </div>
@@ -310,60 +331,60 @@ class MeshSettingsExtNotification extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>External Notification</h3>
-          <p>Configure buzzer, vibration motor, and LED notifications.</p>
+          <h3>${t("modules.ext_notification.title")}</h3>
+          <p>${t("modules.ext_notification.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable external notification module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.ext_notification.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
-              ${this._sectionTitle("Output")}
+              ${this._sectionTitle(t("modules.ext_notification.output"))}
               <div class="form-grid">
-                <mesh-number-input label="Output GPIO" description="GPIO pin for notification output"
+                <mesh-number-input label=${t("modules.ext_notification.output_gpio")} description=${t("modules.ext_notification.output_gpio_desc")}
                   .value=${d.output ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("output", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Output Vibra GPIO" description="GPIO for vibration motor"
+                <mesh-number-input label=${t("modules.ext_notification.output_vibra")} description=${t("modules.ext_notification.output_vibra_desc")}
                   .value=${d.output_vibra ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("output_vibra", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Output Buzzer GPIO" description="GPIO for piezo buzzer"
+                <mesh-number-input label=${t("modules.ext_notification.output_buzzer")} description=${t("modules.ext_notification.output_buzzer_desc")}
                   .value=${d.output_buzzer ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("output_buzzer", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Nag Timeout (secs)" description="Repeat notification interval (0 = once)"
+                <mesh-number-input label=${t("modules.ext_notification.nag_timeout")} description=${t("modules.ext_notification.nag_timeout_desc")}
                   .value=${d.nag_timeout ?? 0} .min=${0}
                   @change=${(e) => this._updateField("nag_timeout", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Output Duration (ms)" description="Notification pulse duration"
+                <mesh-number-input label=${t("modules.ext_notification.output_ms")} description=${t("modules.ext_notification.output_ms_desc")}
                   .value=${d.output_ms ?? 0} .min=${0}
                   @change=${(e) => this._updateField("output_ms", e.detail.value)}></mesh-number-input>
               </div>
             </div>
 
             <div class="settings-section">
-              ${this._sectionTitle("Triggers")}
-              <mesh-toggle label="Alert on Message" description="Notify on incoming messages"
+              ${this._sectionTitle(t("modules.ext_notification.triggers"))}
+              <mesh-toggle label=${t("modules.ext_notification.alert_message")} description=${t("modules.ext_notification.alert_message_desc")}
                 .checked=${d.alert_message === true}
                 @change=${(e) => this._updateField("alert_message", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Alert on Message Buzzer" description="Use buzzer for message alerts"
+              <mesh-toggle label=${t("modules.ext_notification.alert_message_buzzer")} description=${t("modules.ext_notification.alert_message_buzzer_desc")}
                 .checked=${d.alert_message_buzzer === true}
                 @change=${(e) => this._updateField("alert_message_buzzer", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Alert on Message Vibra" description="Use vibration for message alerts"
+              <mesh-toggle label=${t("modules.ext_notification.alert_message_vibra")} description=${t("modules.ext_notification.alert_message_vibra_desc")}
                 .checked=${d.alert_message_vibra === true}
                 @change=${(e) => this._updateField("alert_message_vibra", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Alert on Bell" description="Notify on bell character"
+              <mesh-toggle label=${t("modules.ext_notification.alert_bell")} description=${t("modules.ext_notification.alert_bell_desc")}
                 .checked=${d.alert_bell === true}
                 @change=${(e) => this._updateField("alert_bell", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Alert on Bell Buzzer"
+              <mesh-toggle label=${t("modules.ext_notification.alert_bell_buzzer")}
                 .checked=${d.alert_bell_buzzer === true}
                 @change=${(e) => this._updateField("alert_bell_buzzer", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Alert on Bell Vibra"
+              <mesh-toggle label=${t("modules.ext_notification.alert_bell_vibra")}
                 .checked=${d.alert_bell_vibra === true}
                 @change=${(e) => this._updateField("alert_bell_vibra", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Use PWM Buzzer" description="Drive buzzer with PWM for tones"
+              <mesh-toggle label=${t("modules.ext_notification.use_pwm")} description=${t("modules.ext_notification.use_pwm_desc")}
                 .checked=${d.use_pwm === true}
                 @change=${(e) => this._updateField("use_pwm", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Active High" description="Output is active-high (vs active-low)"
+              <mesh-toggle label=${t("modules.ext_notification.active_high")} description=${t("modules.ext_notification.active_high_desc")}
                 .checked=${d.active === true}
                 @change=${(e) => this._updateField("active", e.detail.checked)}></mesh-toggle>
             </div>
@@ -389,33 +410,33 @@ class MeshSettingsStoreForward extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Store & Forward</h3>
-          <p>Store messages and forward them to nodes that come online later.</p>
+          <h3>${t("modules.store_forward.title")}</h3>
+          <p>${t("modules.store_forward.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Store & Forward module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.store_forward.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Records" description="Number of messages to store (0 = auto)"
+                <mesh-number-input label=${t("modules.store_forward.records")} description=${t("modules.store_forward.records_desc")}
                   .value=${d.records ?? 0} .min=${0}
                   @change=${(e) => this._updateField("records", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="History Return Max"
-                  description="Max messages to return on request"
+                <mesh-number-input label=${t("modules.store_forward.history_return_max")}
+                  description=${t("modules.store_forward.history_return_max_desc")}
                   .value=${d.history_return_max ?? 0} .min=${0}
                   @change=${(e) => this._updateField("history_return_max", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="History Return Window (secs)"
-                  description="Time window for history requests"
+                <mesh-number-input label=${t("modules.store_forward.history_return_window")}
+                  description=${t("modules.store_forward.history_return_window_desc")}
                   .value=${d.history_return_window ?? 0} .min=${0}
                   @change=${(e) => this._updateField("history_return_window", e.detail.value)}></mesh-number-input>
               </div>
-              <mesh-toggle label="Heartbeat" description="Send periodic heartbeat to clients"
+              <mesh-toggle label=${t("modules.store_forward.heartbeat")} description=${t("modules.store_forward.heartbeat_desc")}
                 .checked=${d.heartbeat === true}
                 @change=${(e) => this._updateField("heartbeat", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Is Server" description="Act as the S&F server for the mesh"
+              <mesh-toggle label=${t("modules.store_forward.is_server")} description=${t("modules.store_forward.is_server_desc")}
                 .checked=${d.is_server === true}
                 @change=${(e) => this._updateField("is_server", e.detail.checked)}></mesh-toggle>
             </div>
@@ -441,23 +462,23 @@ class MeshSettingsRangeTest extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Range Test</h3>
-          <p>Send periodic test messages to measure range and link quality.</p>
+          <h3>${t("modules.range_test.title")}</h3>
+          <p>${t("modules.range_test.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Range Test module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.range_test.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Sender Interval (secs)"
-                  description="Seconds between test messages (0 = receive only)"
+                <mesh-number-input label=${t("modules.range_test.sender_interval")}
+                  description=${t("modules.range_test.sender_interval_desc")}
                   .value=${d.sender ?? 0} .min=${0}
                   @change=${(e) => this._updateField("sender", e.detail.value)}></mesh-number-input>
               </div>
-              <mesh-toggle label="Save to File" description="Save received test data to file"
+              <mesh-toggle label=${t("modules.range_test.save_to_file")} description=${t("modules.range_test.save_to_file_desc")}
                 .checked=${d.save === true}
                 @change=${(e) => this._updateField("save", e.detail.checked)}></mesh-toggle>
             </div>
@@ -483,46 +504,49 @@ class MeshSettingsTelemetry extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Telemetry</h3>
-          <p>Configure device metrics, environment, air quality, and power telemetry intervals.</p>
+          <h3>${t("modules.telemetry.title")}</h3>
+          <p>${t("modules.telemetry.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
           <div class="settings-section">
-            ${this._sectionTitle("Device Metrics")}
+            ${this._sectionTitle(t("modules.telemetry.device_metrics"))}
             <div class="info-banner">
-              <strong>Charts not updating?</strong> Firmware 2.7.x defaults this to <code>3600</code> (1 hour),
-              which is why battery / channel utilization / airtime graphs may look frozen.
-              For a live dashboard, set this to <code>300</code> (5 min) or <code>600</code> (10 min).
+              <strong>${t("modules.telemetry.banner_title")}</strong>
+              ${withTemplates(t("modules.telemetry.banner_default"), { default: html`<code>3600</code>` })}
+              ${withTemplates(t("modules.telemetry.banner_advice"), {
+                five: html`<code>300</code>`,
+                ten: html`<code>600</code>`,
+              })}
               <div class="quick-presets">
                 <button class="quick-preset" type="button"
-                  @click=${() => this._updateField("device_update_interval", 300)}>5 min</button>
+                  @click=${() => this._updateField("device_update_interval", 300)}>${t("modules.telemetry.preset_minutes", { minutes: 5 })}</button>
                 <button class="quick-preset" type="button"
-                  @click=${() => this._updateField("device_update_interval", 600)}>10 min</button>
+                  @click=${() => this._updateField("device_update_interval", 600)}>${t("modules.telemetry.preset_minutes", { minutes: 10 })}</button>
                 <button class="quick-preset" type="button"
-                  @click=${() => this._updateField("device_update_interval", 1800)}>30 min</button>
+                  @click=${() => this._updateField("device_update_interval", 1800)}>${t("modules.telemetry.preset_minutes", { minutes: 30 })}</button>
               </div>
             </div>
             <div class="form-grid">
-              <mesh-number-input label="Update Interval (secs)"
-                description="How often the radio broadcasts device metrics. 0 uses the firmware default (3600s on fw 2.7.x)."
+              <mesh-number-input label=${t("modules.update_interval_secs")}
+                description=${t("modules.telemetry.device_update_interval_desc")}
                 .value=${d.device_update_interval ?? 0} .min=${0}
                 @change=${(e) => this._updateField("device_update_interval", e.detail.value)}></mesh-number-input>
             </div>
           </div>
 
           <div class="settings-section">
-            ${this._sectionTitle("Environment")}
-            <mesh-toggle label="Environment Measurement Enabled"
-              description="Enable environment sensor readings"
+            ${this._sectionTitle(t("modules.telemetry.environment"))}
+            <mesh-toggle label=${t("modules.telemetry.environment_enabled")}
+              description=${t("modules.telemetry.environment_enabled_desc")}
               .checked=${d.environment_measurement_enabled === true}
               @change=${(e) => this._updateField("environment_measurement_enabled", e.detail.checked)}></mesh-toggle>
             ${d.environment_measurement_enabled ? html`
               <div class="form-grid" style="margin-top: 8px;">
-                <mesh-number-input label="Environment Update Interval (secs)"
+                <mesh-number-input label=${t("modules.telemetry.environment_interval")}
                   .value=${d.environment_update_interval ?? 0} .min=${0}
                   @change=${(e) => this._updateField("environment_update_interval", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Environment Screen Enabled"
-                  description="Show on screen (1 = yes)"
+                <mesh-number-input label=${t("modules.telemetry.environment_screen")}
+                  description=${t("modules.telemetry.show_on_screen_desc")}
                   .value=${d.environment_screen_enabled ? 1 : 0} .min=${0} .max=${1}
                   @change=${(e) => this._updateField("environment_screen_enabled", e.detail.value === 1)}></mesh-number-input>
               </div>
@@ -530,14 +554,14 @@ class MeshSettingsTelemetry extends ModuleConfigPanel {
           </div>
 
           <div class="settings-section">
-            ${this._sectionTitle("Air Quality")}
-            <mesh-toggle label="Air Quality Enabled"
-              description="Enable air quality sensor readings"
+            ${this._sectionTitle(t("modules.telemetry.air_quality"))}
+            <mesh-toggle label=${t("modules.telemetry.air_quality_enabled")}
+              description=${t("modules.telemetry.air_quality_enabled_desc")}
               .checked=${d.air_quality_enabled === true}
               @change=${(e) => this._updateField("air_quality_enabled", e.detail.checked)}></mesh-toggle>
             ${d.air_quality_enabled ? html`
               <div class="form-grid" style="margin-top: 8px;">
-                <mesh-number-input label="Air Quality Interval (secs)"
+                <mesh-number-input label=${t("modules.telemetry.air_quality_interval")}
                   .value=${d.air_quality_interval ?? 0} .min=${0}
                   @change=${(e) => this._updateField("air_quality_interval", e.detail.value)}></mesh-number-input>
               </div>
@@ -545,18 +569,18 @@ class MeshSettingsTelemetry extends ModuleConfigPanel {
           </div>
 
           <div class="settings-section">
-            ${this._sectionTitle("Power Metrics")}
-            <mesh-toggle label="Power Measurement Enabled"
-              description="Enable power sensor readings (INA sensors)"
+            ${this._sectionTitle(t("modules.telemetry.power_metrics"))}
+            <mesh-toggle label=${t("modules.telemetry.power_enabled")}
+              description=${t("modules.telemetry.power_enabled_desc")}
               .checked=${d.power_measurement_enabled === true}
               @change=${(e) => this._updateField("power_measurement_enabled", e.detail.checked)}></mesh-toggle>
             ${d.power_measurement_enabled ? html`
               <div class="form-grid" style="margin-top: 8px;">
-                <mesh-number-input label="Power Update Interval (secs)"
+                <mesh-number-input label=${t("modules.telemetry.power_interval")}
                   .value=${d.power_update_interval ?? 0} .min=${0}
                   @change=${(e) => this._updateField("power_update_interval", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Power Screen Enabled"
-                  description="Show on screen (1 = yes)"
+                <mesh-number-input label=${t("modules.telemetry.power_screen")}
+                  description=${t("modules.telemetry.show_on_screen_desc")}
                   .value=${d.power_screen_enabled ? 1 : 0} .min=${0} .max=${1}
                   @change=${(e) => this._updateField("power_screen_enabled", e.detail.value === 1)}></mesh-number-input>
               </div>
@@ -609,59 +633,59 @@ class MeshSettingsCannedMessage extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Canned Messages</h3>
-          <p>Pre-defined messages that can be sent quickly using hardware input.</p>
+          <h3>${t("modules.canned_message.title")}</h3>
+          <p>${t("modules.canned_message.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Canned Message module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.canned_message.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
-              ${this._sectionTitle("Messages")}
+              ${this._sectionTitle(t("modules.canned_message.messages"))}
               <div style="margin-bottom: 4px; font-size: 12px; color: var(--secondary-text-color);">
-                One message per line. Use | to separate messages. Available on device input.
+                ${t("modules.canned_message.messages_help")}
               </div>
               <textarea
                 .value=${d.messages || ""}
                 @input=${(e) => this._updateField("messages", e.target.value)}
-                placeholder="Hello|On my way|Be right there"
+                placeholder=${t("modules.canned_message.messages_placeholder")}
               ></textarea>
             </div>
 
             <div class="settings-section">
-              ${this._sectionTitle("Input Source")}
+              ${this._sectionTitle(t("modules.canned_message.input_source"))}
               <div class="form-grid">
-                <mesh-select label="Input Event Source"
+                <mesh-select label=${t("modules.canned_message.input_event_source")}
                   .value=${String(d.inputbroker_event_cw || "NONE")}
-                  .options=${CANNED_MSG_INPUT_EVENTS}
+                  .options=${translateOptions(CANNED_MSG_INPUT_EVENTS)}
                   @change=${(e) => this._updateField("inputbroker_event_cw", e.detail.value)}></mesh-select>
-                <mesh-number-input label="Input Pin A" description="GPIO for rotary encoder / button A"
+                <mesh-number-input label=${t("modules.canned_message.pin_a")} description=${t("modules.canned_message.pin_a_desc")}
                   .value=${d.inputbroker_pin_a ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("inputbroker_pin_a", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Input Pin B" description="GPIO for rotary encoder B"
+                <mesh-number-input label=${t("modules.canned_message.pin_b")} description=${t("modules.canned_message.pin_b_desc")}
                   .value=${d.inputbroker_pin_b ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("inputbroker_pin_b", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Input Pin Press" description="GPIO for press/select"
+                <mesh-number-input label=${t("modules.canned_message.pin_press")} description=${t("modules.canned_message.pin_press_desc")}
                   .value=${d.inputbroker_pin_press ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("inputbroker_pin_press", e.detail.value)}></mesh-number-input>
               </div>
-              <mesh-toggle label="Rotary Encoder Enabled"
+              <mesh-toggle label=${t("modules.canned_message.rotary_enabled")}
                 .checked=${d.rotary1_enabled === true}
                 @change=${(e) => this._updateField("rotary1_enabled", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Up/Down Enabled"
+              <mesh-toggle label=${t("modules.canned_message.updown_enabled")}
                 .checked=${d.updown1_enabled === true}
                 @change=${(e) => this._updateField("updown1_enabled", e.detail.checked)}></mesh-toggle>
             </div>
 
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Send to Channel" description="Channel index to send on"
-                  .value=${d.send_bell ?? 0} .min=${0} .max=${7}
-                  @change=${(e) => this._updateField("send_bell", e.detail.value)}></mesh-number-input>
+                <mesh-toggle label=${t("modules.canned_message.send_bell")} description=${t("modules.canned_message.send_bell_desc")}
+                  .checked=${d.send_bell === true}
+                  @change=${(e) => this._updateField("send_bell", e.detail.checked)}></mesh-toggle>
               </div>
-              <mesh-toggle label="Allow Input Source" description="Allow message input from hardware"
+              <mesh-toggle label=${t("modules.canned_message.allow_input_source")} description=${t("modules.canned_message.allow_input_source_desc")}
                 .checked=${d.allow_input_source === true}
                 @change=${(e) => this._updateField("allow_input_source", e.detail.checked)}></mesh-toggle>
             </div>
@@ -687,22 +711,22 @@ class MeshSettingsAudio extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Audio / Codec2</h3>
-          <p>Configure audio codec settings for voice communication over mesh.</p>
+          <h3>${t("modules.audio.title")}</h3>
+          <p>${t("modules.audio.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Codec2 Enabled" description="Enable Codec2 audio module"
+          <mesh-toggle label=${t("modules.audio.codec2_enabled")} description=${t("modules.audio.codec2_enabled_desc")}
             .checked=${d.codec2_enabled === true}
             @change=${(e) => this._updateField("codec2_enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.codec2_enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-select label="Bitrate" description="Codec2 bitrate setting"
+                <mesh-select label=${t("modules.audio.bitrate")} description=${t("modules.audio.bitrate_desc")}
                   .value=${String(d.bitrate || "CODEC2_DEFAULT")}
-                  .options=${CODEC2_RATES}
+                  .options=${translateOptions(CODEC2_RATES)}
                   @change=${(e) => this._updateField("bitrate", e.detail.value)}></mesh-select>
-                <mesh-number-input label="PTT GPIO" description="GPIO for push-to-talk button"
+                <mesh-number-input label=${t("modules.audio.ptt_gpio")} description=${t("modules.audio.ptt_gpio_desc")}
                   .value=${d.ptt_pin ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("ptt_pin", e.detail.value)}></mesh-number-input>
                 <mesh-number-input label="I2S WS GPIO"
@@ -741,19 +765,19 @@ class MeshSettingsNeighborInfo extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Neighbor Info</h3>
-          <p>Broadcast information about direct neighbors for mesh topology mapping.</p>
+          <h3>${t("modules.neighbor_info.title")}</h3>
+          <p>${t("modules.neighbor_info.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Neighbor Info module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.neighbor_info.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Update Interval (secs)"
-                  description="How often to broadcast neighbor info (0 = default)"
+                <mesh-number-input label=${t("modules.update_interval_secs")}
+                  description=${t("modules.neighbor_info.update_interval_desc")}
                   .value=${d.update_interval ?? 0} .min=${0}
                   @change=${(e) => this._updateField("update_interval", e.detail.value)}></mesh-number-input>
               </div>
@@ -780,27 +804,27 @@ class MeshSettingsAmbientLighting extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Ambient Lighting</h3>
-          <p>Configure onboard LED color and brightness.</p>
+          <h3>${t("modules.ambient_lighting.title")}</h3>
+          <p>${t("modules.ambient_lighting.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="LED State" description="Turn the LED on or off"
+          <mesh-toggle label=${t("modules.ambient_lighting.led_state")} description=${t("modules.ambient_lighting.led_state_desc")}
             .checked=${d.led_state === true}
             @change=${(e) => this._updateField("led_state", e.detail.checked)}></mesh-toggle>
 
           ${d.led_state ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Red" description="Red channel (0-255)"
+                <mesh-number-input label=${t("modules.ambient_lighting.red")} description=${t("modules.ambient_lighting.red_desc")}
                   .value=${d.red ?? 0} .min=${0} .max=${255}
                   @change=${(e) => this._updateField("red", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Green" description="Green channel (0-255)"
+                <mesh-number-input label=${t("modules.ambient_lighting.green")} description=${t("modules.ambient_lighting.green_desc")}
                   .value=${d.green ?? 0} .min=${0} .max=${255}
                   @change=${(e) => this._updateField("green", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Blue" description="Blue channel (0-255)"
+                <mesh-number-input label=${t("modules.ambient_lighting.blue")} description=${t("modules.ambient_lighting.blue_desc")}
                   .value=${d.blue ?? 0} .min=${0} .max=${255}
                   @change=${(e) => this._updateField("blue", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Current" description="LED brightness / current limit (0-31)"
+                <mesh-number-input label=${t("modules.ambient_lighting.current")} description=${t("modules.ambient_lighting.current_desc")}
                   .value=${d.current ?? 0} .min=${0} .max=${31}
                   @change=${(e) => this._updateField("current", e.detail.value)}></mesh-number-input>
               </div>
@@ -827,41 +851,41 @@ class MeshSettingsDetectionSensor extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Detection Sensor</h3>
-          <p>Configure a GPIO-based detection sensor that sends alerts on the mesh.</p>
+          <h3>${t("modules.detection_sensor.title")}</h3>
+          <p>${t("modules.detection_sensor.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Detection Sensor module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.detection_sensor.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Monitor Pin" description="GPIO pin to monitor for detection"
+                <mesh-number-input label=${t("modules.detection_sensor.monitor_pin")} description=${t("modules.detection_sensor.monitor_pin_desc")}
                   .value=${d.monitor_pin ?? 0} .min=${0} .max=${48}
                   @change=${(e) => this._updateField("monitor_pin", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="Minimum Broadcast Secs"
-                  description="Min interval between alert broadcasts"
+                <mesh-number-input label=${t("modules.detection_sensor.min_broadcast_secs")}
+                  description=${t("modules.detection_sensor.min_broadcast_secs_desc")}
                   .value=${d.minimum_broadcast_secs ?? 0} .min=${0}
                   @change=${(e) => this._updateField("minimum_broadcast_secs", e.detail.value)}></mesh-number-input>
-                <mesh-number-input label="State Broadcast Secs"
-                  description="Periodic state broadcast interval"
+                <mesh-number-input label=${t("modules.detection_sensor.state_broadcast_secs")}
+                  description=${t("modules.detection_sensor.state_broadcast_secs_desc")}
                   .value=${d.state_broadcast_secs ?? 0} .min=${0}
                   @change=${(e) => this._updateField("state_broadcast_secs", e.detail.value)}></mesh-number-input>
-                <mesh-text-input label="Detection Triggered High"
-                  description="Message when pin goes HIGH"
+                <mesh-text-input label=${t("modules.detection_sensor.triggered_high")}
+                  description=${t("modules.detection_sensor.triggered_high_desc")}
                   .value=${d.detection_triggered_high || ""}
                   @change=${(e) => this._updateField("detection_triggered_high", e.detail.value)}></mesh-text-input>
-                <mesh-text-input label="Detection Triggered Low"
-                  description="Message when pin goes LOW"
+                <mesh-text-input label=${t("modules.detection_sensor.triggered_low")}
+                  description=${t("modules.detection_sensor.triggered_low_desc")}
                   .value=${d.detection_triggered_low || ""}
                   @change=${(e) => this._updateField("detection_triggered_low", e.detail.value)}></mesh-text-input>
               </div>
-              <mesh-toggle label="Send Bell" description="Send a bell notification with alerts"
+              <mesh-toggle label=${t("modules.detection_sensor.send_bell")} description=${t("modules.detection_sensor.send_bell_desc")}
                 .checked=${d.send_bell === true}
                 @change=${(e) => this._updateField("send_bell", e.detail.checked)}></mesh-toggle>
-              <mesh-toggle label="Use Pullup" description="Enable internal pullup resistor"
+              <mesh-toggle label=${t("modules.detection_sensor.use_pullup")} description=${t("modules.detection_sensor.use_pullup_desc")}
                 .checked=${d.use_pullup === true}
                 @change=${(e) => this._updateField("use_pullup", e.detail.checked)}></mesh-toggle>
             </div>
@@ -887,28 +911,28 @@ class MeshSettingsPaxcounter extends ModuleConfigPanel {
     return html`
       <div class="settings-panel">
         <div class="settings-panel-header">
-          <h3>Paxcounter</h3>
-          <p>Count nearby WiFi and BLE devices and broadcast counts on the mesh.</p>
+          <h3>${t("modules.paxcounter.title")}</h3>
+          <p>${t("modules.paxcounter.subtitle")}</p>
         </div>
         <div class="settings-panel-body">
-          <mesh-toggle label="Enabled" description="Enable Paxcounter module"
+          <mesh-toggle label=${t("common.enabled")} description=${t("modules.paxcounter.enabled_desc")}
             .checked=${d.enabled === true}
             @change=${(e) => this._updateField("enabled", e.detail.checked)}></mesh-toggle>
 
           ${d.enabled ? html`
             <div class="settings-section">
               <div class="form-grid">
-                <mesh-number-input label="Update Interval (secs)"
-                  description="How often to broadcast pax count (0 = default)"
+                <mesh-number-input label=${t("modules.update_interval_secs")}
+                  description=${t("modules.paxcounter.update_interval_desc")}
                   .value=${d.paxcounter_update_interval ?? 0} .min=${0}
                   @change=${(e) => this._updateField("paxcounter_update_interval", e.detail.value)}></mesh-number-input>
               </div>
-              <mesh-toggle label="WiFi Threshold"
-                description="Enable WiFi device counting"
+              <mesh-toggle label=${t("modules.paxcounter.wifi_threshold")}
+                description=${t("modules.paxcounter.wifi_threshold_desc")}
                 .checked=${d.wifi_threshold !== 0}
                 @change=${(e) => this._updateField("wifi_threshold", e.detail.checked ? -80 : 0)}></mesh-toggle>
-              <mesh-toggle label="BLE Threshold"
-                description="Enable BLE device counting"
+              <mesh-toggle label=${t("modules.paxcounter.ble_threshold")}
+                description=${t("modules.paxcounter.ble_threshold_desc")}
                 .checked=${d.ble_threshold !== 0}
                 @change=${(e) => this._updateField("ble_threshold", e.detail.checked ? -80 : 0)}></mesh-toggle>
             </div>

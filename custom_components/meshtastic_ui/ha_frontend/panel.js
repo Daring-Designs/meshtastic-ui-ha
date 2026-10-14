@@ -3,6 +3,7 @@ import {
   html,
   css,
 } from "./vendor/lit/lit-element.js";
+import { setLanguage, t } from "./i18n.js";
 
 /* ── Import tab components ── */
 import "./views.js";
@@ -26,6 +27,13 @@ window.addEventListener("unhandledrejection", (e) => {
 // card filling the quota shouldn't be able to throw out of our click/data
 // handlers. A thrown QuotaExceededError just means the preference silently
 // doesn't persist for this load.
+function requestUpdateTree(root) {
+  for (const element of root.querySelectorAll("*")) {
+    element.requestUpdate?.();
+    if (element.shadowRoot) requestUpdateTree(element.shadowRoot);
+  }
+}
+
 function lsGet(key) {
   try {
     return localStorage.getItem(key);
@@ -42,14 +50,8 @@ function lsSet(key, value) {
   }
 }
 
+// Tab ids double as route segments; labels come from panel.tabs.<id> at render time.
 const TABS = ["radio", "messages", "nodes", "map", "settings"];
-const TAB_LABELS = {
-  radio: "Radio",
-  messages: "Messages",
-  nodes: "Nodes",
-  map: "Map",
-  settings: "Settings",
-};
 
 function _tabFromPath() {
   // Extract tab from URL path: /meshtastic-ui/messages → "messages"
@@ -168,7 +170,21 @@ class MeshtasticUiPanel extends LitElement {
     }
   }
 
+  willUpdate(changed) {
+    // Pick the locale before rendering so the first paint is already translated.
+    if (changed.has("hass") && this.hass) {
+      const languageChanged = setLanguage(this.hass.locale?.language || this.hass.language);
+      this._languageChanged = languageChanged && this.hasUpdated;
+    }
+  }
+
   updated(changed) {
+    if (this._languageChanged) {
+      // Tab components only re-render when their own properties change, so
+      // nudge every descendant to pick up the new language.
+      this._languageChanged = false;
+      requestUpdateTree(this.shadowRoot);
+    }
     if (changed.has("hass") && this.hass) {
       const conn = this.hass.connection;
       if (this._prevConnection && this._prevConnection !== conn) {
@@ -715,7 +731,7 @@ class MeshtasticUiPanel extends LitElement {
       if (!result?.success) {
         this._pendingTraceroute = null;
         clearTimeout(this._tracerouteTimeoutId);
-        if (nodesTab) nodesTab.showFeedback("Trace route unavailable");
+        if (nodesTab) nodesTab.showFeedback(t("panel.feedback.trace_route_unavailable"));
       }
     } else if (action === "request-position") {
       this._pendingPosition = nodeId;
@@ -723,7 +739,7 @@ class MeshtasticUiPanel extends LitElement {
         service: "request_position",
         service_data: { destination: nodeId },
       });
-      const msg = result?.success ? "Position request sent" : "Position request unavailable";
+      const msg = result?.success ? t("panel.feedback.position_request_sent") : t("panel.feedback.position_request_unavailable");
       this._pendingPosition = null;
       if (nodesTab) nodesTab.showFeedback(msg);
       if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
@@ -733,7 +749,7 @@ class MeshtasticUiPanel extends LitElement {
         service: "request_nodeinfo",
         service_data: { destination: nodeId },
       });
-      const msg = result?.success ? "Node info request sent" : "Node info request unavailable";
+      const msg = result?.success ? t("panel.feedback.nodeinfo_request_sent") : t("panel.feedback.nodeinfo_request_unavailable");
       this._pendingNodeinfo = null;
       if (nodesTab) nodesTab.showFeedback(msg);
       if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
@@ -748,7 +764,7 @@ class MeshtasticUiPanel extends LitElement {
           this._favoriteNodes = this._favoriteNodes.filter((id) => id !== nodeId);
         }
       }
-      if (nodesTab) nodesTab.showFeedback(result?.success ? (action === "favorite" ? "Added to favorites" : "Removed from favorites") : "Action failed");
+      if (nodesTab) nodesTab.showFeedback(result?.success ? (action === "favorite" ? t("panel.feedback.added_to_favorites") : t("panel.feedback.removed_from_favorites")) : t("panel.feedback.action_failed"));
     } else if (action === "ignore" || action === "unignore") {
       const result = await this._wsCommand("meshtastic_ui/node_admin", {
         node_id: nodeId, action,
@@ -760,7 +776,7 @@ class MeshtasticUiPanel extends LitElement {
           this._ignoredNodes = this._ignoredNodes.filter((id) => id !== nodeId);
         }
       }
-      if (nodesTab) nodesTab.showFeedback(result?.success ? (action === "ignore" ? "Node ignored" : "Node unignored") : "Action failed");
+      if (nodesTab) nodesTab.showFeedback(result?.success ? (action === "ignore" ? t("panel.feedback.node_ignored") : t("panel.feedback.node_unignored")) : t("panel.feedback.action_failed"));
     } else if (action === "remove") {
       const result = await this._wsCommand("meshtastic_ui/node_admin", {
         node_id: nodeId, action: "remove",
@@ -773,7 +789,7 @@ class MeshtasticUiPanel extends LitElement {
         this._nodeDialogId = null;
         if (nodesTab) nodesTab.closeDialog();
       }
-      if (nodesTab) nodesTab.showFeedback(result?.success ? "Node removed" : "Remove failed");
+      if (nodesTab) nodesTab.showFeedback(result?.success ? t("panel.feedback.node_removed") : t("panel.feedback.remove_failed"));
     }
   }
 
@@ -1081,7 +1097,7 @@ class MeshtasticUiPanel extends LitElement {
     return html`
       <div class="tabs">
         ${this.narrow ? html`
-          <button class="menu-btn" @click=${this._toggleMenu} aria-label="Sidebar toggle" title="Sidebar toggle">
+          <button class="menu-btn" @click=${this._toggleMenu} aria-label=${t("panel.header.sidebar_toggle")} title=${t("panel.header.sidebar_toggle")}>
             <ha-icon icon="mdi:menu"></ha-icon>
           </button>
         ` : ""}
@@ -1093,7 +1109,7 @@ class MeshtasticUiPanel extends LitElement {
               class="tab ${this._activeTab === tab ? "active" : ""}"
               @click=${() => this._setTab(tab)}
             >
-              ${TAB_LABELS[tab]}
+              ${t(`panel.tabs.${tab}`)}
               ${unread > 0 ? html`<span class="tab-badge">${unread > 99 ? "99+" : unread}</span>` : ""}
             </div>
           `;
@@ -1107,7 +1123,7 @@ class MeshtasticUiPanel extends LitElement {
       ${this._showReconnectBanner ? html`
         <div class="reconnect-banner" @click=${() => this._handleReconnectClick()}>
           <ha-icon icon="mdi:connection"></ha-icon>
-          ${this._reconnecting ? "Reconnecting…" : "Connection lost — click to reconnect"}
+          ${this._reconnecting ? t("panel.reconnect.reconnecting") : t("panel.reconnect.connection_lost")}
         </div>
       ` : ""}
       <div class="content">
@@ -1214,30 +1230,30 @@ class MeshtasticUiPanel extends LitElement {
     };
 
     const formatLastSeen = (iso) => {
-      if (!iso) return "Unknown";
+      if (!iso) return t("common.unknown");
       try {
         const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-        if (diff < 60) return "Just now";
-        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-        return `${Math.floor(diff / 86400)}d ago`;
-      } catch { return "Unknown"; }
+        if (diff < 60) return t("panel.time.just_now");
+        if (diff < 3600) return t("panel.time.minutes_ago", { count: Math.floor(diff / 60) });
+        if (diff < 86400) return t("panel.time.hours_ago", { count: Math.floor(diff / 3600) });
+        return t("panel.time.days_ago", { count: Math.floor(diff / 86400) });
+      } catch { return t("common.unknown"); }
     };
     const formatUptime = (s) => {
       s = parseInt(s, 10);
       if (isNaN(s)) return "\u2014";
-      if (s < 60) return `${s}s`;
-      if (s < 3600) return `${Math.floor(s / 60)}m`;
-      if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-      return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+      if (s < 60) return t("panel.time.uptime_seconds", { seconds: s });
+      if (s < 3600) return t("panel.time.uptime_minutes", { minutes: Math.floor(s / 60) });
+      if (s < 86400) return t("panel.time.uptime_hours", { hours: Math.floor(s / 3600), minutes: Math.floor((s % 3600) / 60) });
+      return t("panel.time.uptime_days", { days: Math.floor(s / 86400), hours: Math.floor((s % 86400) / 3600) });
     };
 
     const onAction = (action) => {
-      if (action === "remove" && !confirm(`Remove node ${node.name || nodeId}?`)) return;
+      if (action === "remove" && !confirm(t("panel.node_dialog.confirm_remove", { name: node.name || nodeId }))) return;
       this._onNodeAction({ detail: { action, nodeId } });
       if (action === "send-message" || action === "remove" || action === "view-on-map") return; // dialog closed by handler
       if (["favorite", "unfavorite", "ignore", "unignore"].includes(action)) {
-        this._showNodeDialogFeedback(action === "favorite" ? "Added to favorites" : action === "unfavorite" ? "Removed from favorites" : action === "ignore" ? "Node ignored" : "Node unignored");
+        this._showNodeDialogFeedback(action === "favorite" ? t("panel.feedback.added_to_favorites") : action === "unfavorite" ? t("panel.feedback.removed_from_favorites") : action === "ignore" ? t("panel.feedback.node_ignored") : t("panel.feedback.node_unignored"));
       }
     };
 
@@ -1247,82 +1263,82 @@ class MeshtasticUiPanel extends LitElement {
           <div class="node-dialog-header">
             <span class="nd-fav ${isFav ? "active" : ""}"
               @click=${() => onAction(isFav ? "unfavorite" : "favorite")}
-              title="${isFav ? "Remove from favorites" : "Add to favorites"}"
+              title="${isFav ? t("panel.node_dialog.remove_from_favorites") : t("panel.node_dialog.add_to_favorites")}"
             >${isFav ? "\u2605" : "\u2606"}</span>
-            <div class="title">${node.name || nodeId}${isIgn ? html`<span class="nd-ign-badge">IGNORED</span>` : ""}</div>
+            <div class="title">${node.name || nodeId}${isIgn ? html`<span class="nd-ign-badge">${t("panel.node_dialog.ignored_badge")}</span>` : ""}</div>
             <button class="close" @click=${() => this._closeNodeDialog()}>\u00D7</button>
           </div>
           <div class="node-dialog-body">
             <div class="node-dialog-section">
-              <div class="nd-section-title">Identity</div>
+              <div class="nd-section-title">${t("panel.node_dialog.sections.identity")}</div>
               <div class="nd-metrics">
-                ${metric("Node ID", nodeId)}
-                ${metric("Short Name", node.short_name)}
-                ${metric("Long Name", node.name)}
-                ${metric("Hardware", _fmtHw(node.hardware_model || node.model))}
-                ${metric("Last Seen", formatLastSeen(node._last_seen))}
+                ${metric(t("panel.node_dialog.metrics.node_id"), nodeId)}
+                ${metric(t("panel.node_dialog.metrics.short_name"), node.short_name)}
+                ${metric(t("panel.node_dialog.metrics.long_name"), node.name)}
+                ${metric(t("panel.node_dialog.metrics.hardware"), _fmtHw(node.hardware_model || node.model))}
+                ${metric(t("panel.node_dialog.metrics.last_seen"), formatLastSeen(node._last_seen))}
               </div>
             </div>
             <div class="node-dialog-section">
-              <div class="nd-section-title">Radio</div>
+              <div class="nd-section-title">${t("panel.node_dialog.sections.radio")}</div>
               <div class="nd-metrics">
                 ${metric("SNR", node.snr != null ? Math.round(node.snr * 10) / 10 : null, " dB")}
                 ${metric("RSSI", node.rssi != null ? Math.round(node.rssi) : null, " dBm")}
-                ${metric("Hops", node.hops)}
-                ${metric("Air Util TX", node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
-                ${metric("Ch. Util", node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
+                ${metric(t("panel.node_dialog.metrics.hops"), node.hops)}
+                ${metric(t("panel.node_dialog.metrics.air_util_tx"), node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
+                ${metric(t("panel.node_dialog.metrics.channel_util"), node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
               </div>
             </div>
             <div class="node-dialog-section">
-              <div class="nd-section-title">Power</div>
+              <div class="nd-section-title">${t("panel.node_dialog.sections.power")}</div>
               <div class="nd-metrics">
-                ${metric("Battery", node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
-                ${metric("Voltage", node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
-                ${metric("Uptime", node.uptime ? formatUptime(node.uptime) : null)}
+                ${metric(t("panel.node_dialog.metrics.battery"), node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
+                ${metric(t("panel.node_dialog.metrics.voltage"), node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
+                ${metric(t("panel.node_dialog.metrics.uptime"), node.uptime ? formatUptime(node.uptime) : null)}
               </div>
             </div>
             ${node.temperature != null || node.humidity != null || node.pressure != null ? html`
               <div class="node-dialog-section">
-                <div class="nd-section-title">Environment</div>
+                <div class="nd-section-title">${t("panel.node_dialog.sections.environment")}</div>
                 <div class="nd-metrics">
-                  ${metric("Temperature", node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
-                  ${metric("Humidity", node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
-                  ${metric("Pressure", node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
+                  ${metric(t("panel.node_dialog.metrics.temperature"), node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
+                  ${metric(t("panel.node_dialog.metrics.humidity"), node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
+                  ${metric(t("panel.node_dialog.metrics.pressure"), node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
                 </div>
               </div>
             ` : ""}
             ${node.latitude != null || node.longitude != null ? html`
               <div class="node-dialog-section">
-                <div class="nd-section-title">Position</div>
+                <div class="nd-section-title">${t("panel.node_dialog.sections.position")}</div>
                 <div class="nd-metrics">
-                  ${metric("Latitude", node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
-                  ${metric("Longitude", node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
-                  ${metric("Altitude", node.altitude != null ? Math.round(node.altitude) : null, " m")}
+                  ${metric(t("panel.node_dialog.metrics.latitude"), node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
+                  ${metric(t("panel.node_dialog.metrics.longitude"), node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
+                  ${metric(t("panel.node_dialog.metrics.altitude"), node.altitude != null ? Math.round(node.altitude) : null, " m")}
                 </div>
               </div>
             ` : ""}
           </div>
           <div class="node-dialog-actions">
             <button class="nd-btn primary" @click=${() => onAction("send-message")}>
-              <ha-icon icon="mdi:message-text" style="--mdc-icon-size:16px;"></ha-icon> Message
+              <ha-icon icon="mdi:message-text" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.message")}
             </button>
             <button class="nd-btn"
               ?disabled=${this._pendingTraceroute === nodeId}
               @click=${() => onAction("trace-route")}>
               ${this._pendingTraceroute === nodeId
-                ? html`<span class="spinner"></span> Tracing...`
-                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size:16px;"></ha-icon> Trace Route`}
+                ? html`<span class="spinner"></span> ${t("panel.node_dialog.actions.tracing")}`
+                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.trace_route")}`}
             </button>
             <button class="nd-btn"
               ?disabled=${this._pendingPosition === nodeId}
               @click=${() => onAction("request-position")}>
               ${this._pendingPosition === nodeId
-                ? html`<span class="spinner"></span> Requesting...`
-                : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> Request Position`}
+                ? html`<span class="spinner"></span> ${t("panel.node_dialog.actions.requesting")}`
+                : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.request_position")}`}
             </button>
             ${node.latitude != null && node.longitude != null ? html`
             <button class="nd-btn" @click=${() => onAction("view-on-map")}>
-              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size:16px;"></ha-icon> View on Map
+              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.view_on_map")}
             </button>
             ` : ""}
             ${!node.name ? html`
@@ -1330,15 +1346,15 @@ class MeshtasticUiPanel extends LitElement {
               ?disabled=${this._pendingNodeinfo === nodeId}
               @click=${() => onAction("request-nodeinfo")}>
               ${this._pendingNodeinfo === nodeId
-                ? html`<span class="spinner"></span> Requesting...`
-                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size:16px;"></ha-icon> Request Info`}
+                ? html`<span class="spinner"></span> ${t("panel.node_dialog.actions.requesting")}`
+                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.request_info")}`}
             </button>
             ` : ""}
             <button class="nd-btn" @click=${() => onAction(isIgn ? "unignore" : "ignore")}>
-              <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size:16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
+              <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size:16px;"></ha-icon> ${isIgn ? t("panel.node_dialog.actions.unignore") : t("panel.node_dialog.actions.ignore")}
             </button>
             <button class="nd-btn danger" @click=${() => onAction("remove")}>
-              <ha-icon icon="mdi:delete" style="--mdc-icon-size:16px;"></ha-icon> Remove
+              <ha-icon icon="mdi:delete" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.remove")}
             </button>
             ${this._nodeDialogFeedback ? html`<span class="nd-feedback">${this._nodeDialogFeedback}</span>` : ""}
           </div>
@@ -1350,7 +1366,7 @@ class MeshtasticUiPanel extends LitElement {
   /* ── Traceroute dialog ── */
 
   _getNodeName(nodeId) {
-    if (!nodeId) return "Unknown";
+    if (!nodeId) return t("common.unknown");
     const node = this._nodes?.[nodeId];
     return node?.name || node?.short_name || nodeId;
   }
@@ -1359,18 +1375,20 @@ class MeshtasticUiPanel extends LitElement {
     const data = this._tracerouteDialog;
     if (data.error) {
       const nodeName = this._getNodeName(data.nodeId);
+      // One sentence with a bolded name: split the translated string on its placeholder.
+      const [noResponseBefore, noResponseAfter = ""] = t("panel.traceroute.no_response").split("{name}");
       return html`
         <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) { this._tracerouteDialog = null; } }}>
           <div class="traceroute-card">
             <div class="traceroute-header">
-              <div class="title">Traceroute Timed Out</div>
+              <div class="title">${t("panel.traceroute.timed_out_title")}</div>
               <button class="close" @click=${() => { this._tracerouteDialog = null; }}>\u00D7</button>
             </div>
             <div class="traceroute-body">
               <div class="traceroute-error">
                 <ha-icon icon="mdi:timer-sand-empty"></ha-icon>
-                <div>No response from <strong>${nodeName}</strong> after 30 seconds.</div>
-                <div style="margin-top:8px;font-size:13px;">The node may be out of range or powered off.</div>
+                <div>${noResponseBefore}<strong>${nodeName}</strong>${noResponseAfter}</div>
+                <div style="margin-top:8px;font-size:13px;">${t("panel.traceroute.out_of_range_hint")}</div>
               </div>
             </div>
           </div>
@@ -1388,13 +1406,13 @@ class MeshtasticUiPanel extends LitElement {
       <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) { this._tracerouteDialog = null; } }}>
         <div class="traceroute-card">
           <div class="traceroute-header">
-            <div class="title">Traceroute: ${this._getNodeName(data.to)} \u2192 ${this._getNodeName(data.from)}</div>
+            <div class="title">${t("panel.traceroute.title", { source: this._getNodeName(data.to), destination: this._getNodeName(data.from) })}</div>
             <button class="close" @click=${() => { this._tracerouteDialog = null; }}>\u00D7</button>
           </div>
           <div class="traceroute-body">
-            <div class="route-summary">${nLinks === 1 ? "Direct connection" : `${nLinks - 1} intermediate hop${nLinks > 2 ? "s" : ""}`}</div>
+            <div class="route-summary">${nLinks === 1 ? t("panel.traceroute.direct_connection") : t("panel.traceroute.intermediate_hops", { count: nLinks - 1 })}</div>
             ${hops.map((hopId, i) => {
-              const label = i === 0 ? "Source" : i === hops.length - 1 ? "Destination" : `Hop ${i}`;
+              const label = i === 0 ? t("panel.traceroute.source") : i === hops.length - 1 ? t("panel.traceroute.destination") : t("panel.traceroute.hop", { number: i });
               const badgeClass = i === 0 ? "source" : i === hops.length - 1 ? "dest" : "hop";
               const fwd = i > 0 ? snrFwd[i - 1] : null;
               const ret = (i > 0 && !hasReturnRoute) ? snrRet[nLinks - i] : null;
@@ -1415,10 +1433,10 @@ class MeshtasticUiPanel extends LitElement {
               `;
             })}
             ${hasReturnRoute ? html`
-              <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">Return Route (different path)</div>
+              <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">${t("panel.traceroute.return_route")}</div>
               ${[data.from, ...(data.route_back || []), data.to].map((hopId, i) => {
                 const rhops = [data.from, ...(data.route_back || []), data.to];
-                const label = i === 0 ? "Source" : i === rhops.length - 1 ? "Destination" : `Hop ${i}`;
+                const label = i === 0 ? t("panel.traceroute.source") : i === rhops.length - 1 ? t("panel.traceroute.destination") : t("panel.traceroute.hop", { number: i });
                 const badgeClass = i === 0 ? "source" : i === rhops.length - 1 ? "dest" : "hop";
                 const snr = i > 0 ? snrRet[i - 1] : null;
                 return html`
@@ -1451,13 +1469,13 @@ class MeshtasticUiPanel extends LitElement {
       <div class="notification-modal" @click=${(e) => { if (e.target.classList.contains("notification-modal")) { this._showNotificationModal = false; } }}>
         <div class="notification-card">
           <div class="notification-header">
-            <div class="title">Notification Settings</div>
+            <div class="title">${t("panel.notifications.title")}</div>
             <button class="close" @click=${() => { this._showNotificationModal = false; }}>\u00D7</button>
           </div>
           <div class="notification-body">
             <div class="notification-field">
               <div class="notification-toggle">
-                <label>Enable Notifications</label>
+                <label>${t("panel.notifications.enable")}</label>
                 <label class="toggle-switch">
                   <input type="checkbox" .checked=${p.enabled}
                     @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, enabled: e.target.checked }; }} />
@@ -1466,7 +1484,7 @@ class MeshtasticUiPanel extends LitElement {
               </div>
             </div>
             <div class="notification-field">
-              <label>Notify Service</label>
+              <label>${t("panel.notifications.service")}</label>
               <select .value=${p.service || "persistent_notification.create"}
                 @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, service: e.target.value }; }}>
                 <option value="persistent_notification.create"
@@ -1478,15 +1496,15 @@ class MeshtasticUiPanel extends LitElement {
               </select>
             </div>
             <div class="notification-field">
-              <label>Message Filter</label>
+              <label>${t("panel.notifications.filter")}</label>
               <select .value=${p.filter || "all"}
                 @change=${(e) => { this._notificationPrefs = { ...this._notificationPrefs, filter: e.target.value }; }}>
-                <option value="all">All Messages</option>
-                <option value="channel">Channels Only</option>
-                <option value="dm">Direct Messages Only</option>
+                <option value="all">${t("panel.notifications.filter_all")}</option>
+                <option value="channel">${t("panel.notifications.filter_channel")}</option>
+                <option value="dm">${t("panel.notifications.filter_dm")}</option>
               </select>
             </div>
-            <button class="notification-save" @click=${this._saveNotificationPrefs}>Save</button>
+            <button class="notification-save" @click=${this._saveNotificationPrefs}>${t("common.save")}</button>
           </div>
         </div>
       </div>

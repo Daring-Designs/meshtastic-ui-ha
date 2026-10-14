@@ -3,6 +3,7 @@ import {
   html,
   css,
 } from "./vendor/lit/lit-element.js";
+import { t } from "./i18n.js";
 
 /* ══════════════════════════════════════════════════════════
    Shared helpers
@@ -46,8 +47,8 @@ function formatDateLabel(iso) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today - 86400000);
     const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    if (msgDay.getTime() === today.getTime()) return "Today";
-    if (msgDay.getTime() === yesterday.getTime()) return "Yesterday";
+    if (msgDay.getTime() === today.getTime()) return t("views.date.today");
+    if (msgDay.getTime() === yesterday.getTime()) return t("views.date.yesterday");
     return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
   } catch {
     return "";
@@ -63,27 +64,27 @@ function isSameDay(iso1, iso2) {
 }
 
 function formatLastSeen(iso) {
-  if (!iso) return "Unknown";
+  if (!iso) return t("common.unknown");
   try {
     const d = new Date(iso);
     const now = new Date();
     const diff = Math.floor((now - d) / 1000);
-    if (diff < 60) return "Just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
+    if (diff < 60) return t("views.time.just_now");
+    if (diff < 3600) return t("views.time.minutes_ago", { minutes: Math.floor(diff / 60) });
+    if (diff < 86400) return t("views.time.hours_ago", { hours: Math.floor(diff / 3600) });
+    return t("views.time.days_ago", { days: Math.floor(diff / 86400) });
   } catch {
-    return "Unknown";
+    return t("common.unknown");
   }
 }
 
 function formatUptime(seconds) {
   const s = parseInt(seconds, 10);
   if (isNaN(s)) return seconds || "\u2014";
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-  return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+  if (s < 60) return t("views.duration.seconds", { seconds: s });
+  if (s < 3600) return t("views.duration.minutes", { minutes: Math.floor(s / 60) });
+  if (s < 86400) return t("views.duration.hours_minutes", { hours: Math.floor(s / 3600), minutes: Math.floor((s % 3600) / 60) });
+  return t("views.duration.days_hours", { days: Math.floor(s / 86400), hours: Math.floor((s % 86400) / 3600) });
 }
 
 function formatHardware(hw) {
@@ -168,11 +169,13 @@ const sharedStyles = css`
    <mesh-radio-tab>
    ══════════════════════════════════════════════════════════ */
 
+// Labels are translation keys, resolved at render time (the language is set
+// after this module is imported).
 const CHART_WINDOW_PRESETS = [
-  { label: "Last Hour", value: 3600 },
-  { label: "Last 6 Hours", value: 21600 },
-  { label: "Last 24 Hours", value: 86400 },
-  { label: "Last 7 Days", value: 604800 },
+  { labelKey: "views.window.1h", value: 3600 },
+  { labelKey: "views.window.6h", value: 21600 },
+  { labelKey: "views.window.24h", value: 86400 },
+  { labelKey: "views.window.7d", value: 604800 },
 ];
 
 export class MeshRadioTab extends LitElement {
@@ -394,27 +397,30 @@ export class MeshRadioTab extends LitElement {
       return html`
         <div class="empty-state">
           <ha-icon icon="mdi:radio-handheld"></ha-icon>
-          <div>No Meshtastic radio connected</div>
+          <div>${t("radio.empty.title")}</div>
           <div style="font-size: 13px; margin-top: 8px;">
-            Check the radio connection in the integration settings.
+            ${t("radio.empty.hint")}
           </div>
         </div>
       `;
     }
     const ts = this.timeSeries;
     const bi = this.bucketInterval || 10;
-    const pktUnit = bi >= 60 ? `pkts/${Math.round(bi / 60)}min` : `pkts/${bi}s`;
-    const presetLabel = CHART_WINDOW_PRESETS.find((p) => p.value === this.chartWindow)?.label || "Custom";
+    const pktUnit = bi >= 60
+      ? t("radio.charts.packets_per_minutes", { minutes: Math.round(bi / 60) })
+      : t("radio.charts.packets_per_seconds", { seconds: bi });
+    const presetKey = CHART_WINDOW_PRESETS.find((p) => p.value === this.chartWindow)?.labelKey;
+    const presetLabel = t(presetKey || "views.window.custom");
     // Use telemetry interval from the first connected gateway.
     const tlmInterval = this.gateways.find((g) => g.telemetry_interval != null)?.telemetry_interval;
     return html`
       ${this.gateways.map((gw) => this._renderGatewayCard(gw))}
       ${ts ? html`
         <div class="charts-heading">
-          <span>${presetLabel} Activity</span>
+          <span>${t("radio.charts.activity_heading", { window: presetLabel })}</span>
           <div class="charts-heading-meta">
             ${tlmInterval != null ? html`
-              <span class="refresh-pill" title="Radio broadcasts device metrics on this interval. Change in Settings → Telemetry.">
+              <span class="refresh-pill" title=${t("radio.charts.telemetry_interval_hint")}>
                 ↻ ${this._formatInterval(tlmInterval)}
               </span>
             ` : ""}
@@ -422,7 +428,7 @@ export class MeshRadioTab extends LitElement {
               .value=${String(this.chartWindow)}
               @change=${this._onWindowChange}>
               ${CHART_WINDOW_PRESETS.map((p) => html`
-                <option value=${p.value} ?selected=${p.value === this.chartWindow}>${p.label}</option>
+                <option value=${p.value} ?selected=${p.value === this.chartWindow}>${t(p.labelKey)}</option>
               `)}
             </select>
           </div>
@@ -430,7 +436,7 @@ export class MeshRadioTab extends LitElement {
         <div class="charts-section">
           <mesh-horizon-chart
             .data=${ts.channelUtil}
-            label="Channel Utilization"
+            label=${t("radio.charts.channel_utilization")}
             colorMode="flat"
             flatColor="#42a5f5"
             unit="%"
@@ -438,7 +444,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.airtimeTx}
-            label="Airtime TX"
+            label=${t("radio.charts.airtime_tx")}
             colorMode="flat"
             flatColor="#ffa726"
             unit="%"
@@ -446,7 +452,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.battery}
-            label="Battery"
+            label=${t("radio.charts.battery")}
             colorMode="value"
             .maxValue=${100}
             unit="%"
@@ -454,7 +460,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.packetTx}
-            label="Packets TX"
+            label=${t("radio.charts.packets_tx")}
             colorMode="flat"
             flatColor="#9575cd"
             unit="${pktUnit}"
@@ -462,7 +468,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
           <mesh-horizon-chart
             .data=${ts.packetRx}
-            label="Packets RX"
+            label=${t("radio.charts.packets_rx")}
             colorMode="flat"
             flatColor="#e57373"
             unit="${pktUnit}"
@@ -470,7 +476,7 @@ export class MeshRadioTab extends LitElement {
           ></mesh-horizon-chart>
         </div>
         ${this.packetTypes ? html`
-          <div class="charts-heading" style="margin-top:12px">Packets by Type</div>
+          <div class="charts-heading" style="margin-top:12px">${t("radio.charts.packets_by_type")}</div>
           <mesh-packet-treemap .data=${this.packetTypes}></mesh-packet-treemap>
         ` : ""}
       ` : ""}
@@ -488,16 +494,16 @@ export class MeshRadioTab extends LitElement {
 
   _formatInterval(secs) {
     // 0 means "firmware default" — fw 2.7.x uses 3600s.
-    if (secs === 0) return "every 1h (fw default)";
-    if (secs < 60) return `every ${secs}s`;
+    if (secs === 0) return t("radio.interval.firmware_default");
+    if (secs < 60) return t("radio.interval.seconds", { seconds: secs });
     if (secs < 3600) {
       const minutes = Math.round(secs / 60);
-      return `every ${minutes} min`;
+      return t("radio.interval.minutes", { minutes });
     }
     const hours = secs / 3600;
-    return hours === Math.floor(hours)
-      ? `every ${hours}h`
-      : `every ${hours.toFixed(1)}h`;
+    return t("radio.interval.hours", {
+      hours: hours === Math.floor(hours) ? hours : hours.toFixed(1),
+    });
   }
 
   _handleReconnect() {
@@ -532,61 +538,61 @@ export class MeshRadioTab extends LitElement {
               <select class="gateway-name-switcher"
                 .value=${this.selectedRadioId || ""}
                 @change=${(e) => this._onRadioSwitch(e.target.value)}
-                title="Switch active radio"
+                title=${t("radio.switch_radio")}
               >
                 ${this.radios.map((r) => {
                   const unread = this.radioUnread?.[r.radio_id] || 0;
                   const dot = (unread > 0 && r.radio_id !== this.selectedRadioId) ? " •" : "";
                   return html`
                     <option value=${r.radio_id} ?selected=${r.radio_id === this.selectedRadioId}>
-                      ${r.name || r.title || "Meshtastic Radio"}${r.last4 ? ` (${r.last4})` : ""}${dot}
+                      ${r.name || r.title || t("radio.default_name")}${r.last4 ? ` (${r.last4})` : ""}${dot}
                     </option>
                   `;
                 })}
               </select>
-              ${otherUnread ? html`<span class="gateway-unread-dot" title="Another radio has new messages"></span>` : ""}
+              ${otherUnread ? html`<span class="gateway-unread-dot" title=${t("radio.other_radio_unread")}></span>` : ""}
             </div>
           ` : html`<div class="gateway-name">${gw.name}</div>`}
           <div class="gateway-meta">
             ${gw.model ? html`<span>${gw.model}</span>` : ""}
             ${gw.firmware ? html`<span>v${gw.firmware}</span>` : ""}
             ${gw.serial ? html`<span>${gw.serial}</span>` : ""}
-            ${sensors.uptime ? html`<span>Up ${formatUptime(sensors.uptime)}</span>` : ""}
+            ${sensors.uptime ? html`<span>${t("radio.uptime", { uptime: formatUptime(sensors.uptime) })}</span>` : ""}
           </div>
           <button
             class="reconnect-btn"
             ?disabled=${this.reconnecting}
             @click=${this._handleReconnect}
-            title="Force reconnect to radio"
+            title=${t("radio.reconnect.title")}
           >
             ${this.reconnecting
-              ? html`<span class="spinner"></span> Reconnecting…`
-              : html`↺ Reconnect`}
+              ? html`<span class="spinner"></span> ${t("radio.reconnect.in_progress")}`
+              : html`↺ ${t("radio.reconnect.button")}`}
           </button>
         </div>
 
         <div class="gateway-section">
-          <div class="section-title">Metrics</div>
+          <div class="section-title">${t("radio.metrics.title")}</div>
           <div class="metrics-grid">
-            ${renderMetric("Battery", sensors.battery != null ? Math.round(Math.min(sensors.battery, 100) * 100) / 100 : null, "%")}
-            ${renderMetric("Voltage", sensors.voltage != null ? Math.round(sensors.voltage * 100) / 100 : null, " V")}
-            ${renderMetric("Ch. Utilization", sensors.channel_utilization != null ? Math.round(sensors.channel_utilization * 100) / 100 : null, "%")}
-            ${renderMetric("Airtime", (sensors.air_util_tx || sensors.airtime) != null ? Math.round((sensors.air_util_tx || sensors.airtime) * 100) / 100 : null, "%")}
-            ${renderMetric("Packets TX", sensors.packets_tx)}
-            ${renderMetric("Packets RX", sensors.packets_rx)}
-            ${renderMetric("Packets Bad", sensors.packets_bad)}
-            ${renderMetric("Packets Relayed", sensors.packets_relayed)}
+            ${renderMetric(t("radio.metrics.battery"), sensors.battery != null ? Math.round(Math.min(sensors.battery, 100) * 100) / 100 : null, "%")}
+            ${renderMetric(t("radio.metrics.voltage"), sensors.voltage != null ? Math.round(sensors.voltage * 100) / 100 : null, " V")}
+            ${renderMetric(t("radio.metrics.channel_utilization"), sensors.channel_utilization != null ? Math.round(sensors.channel_utilization * 100) / 100 : null, "%")}
+            ${renderMetric(t("radio.metrics.airtime"), (sensors.air_util_tx || sensors.airtime) != null ? Math.round((sensors.air_util_tx || sensors.airtime) * 100) / 100 : null, "%")}
+            ${renderMetric(t("radio.metrics.packets_tx"), sensors.packets_tx)}
+            ${renderMetric(t("radio.metrics.packets_rx"), sensors.packets_rx)}
+            ${renderMetric(t("radio.metrics.packets_bad"), sensors.packets_bad)}
+            ${renderMetric(t("radio.metrics.packets_relayed"), sensors.packets_relayed)}
           </div>
         </div>
 
         ${channels.length ? html`
           <div class="gateway-section">
-            <div class="section-title">Channels</div>
+            <div class="section-title">${t("radio.channels.title")}</div>
             <div class="table-scroll">
               <table class="channels-table">
                 <thead>
                   <tr>
-                    <th>Name</th><th>Index</th><th>Type</th><th>PSK</th><th>Uplink</th><th>Downlink</th>
+                    <th>${t("radio.channels.name")}</th><th>${t("radio.channels.index")}</th><th>${t("radio.channels.type")}</th><th>PSK</th><th>${t("radio.channels.uplink")}</th><th>${t("radio.channels.downlink")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -594,10 +600,10 @@ export class MeshRadioTab extends LitElement {
                     <tr>
                       <td>${ch.name}</td>
                       <td>${ch.index}</td>
-                      <td><span class="badge ${ch.primary ? "primary" : "secondary"}">${ch.primary ? "Primary" : "Secondary"}</span></td>
-                      <td>${ch.psk ? "Yes" : "No"}</td>
-                      <td>${ch.uplink ? "Yes" : "No"}</td>
-                      <td>${ch.downlink ? "Yes" : "No"}</td>
+                      <td><span class="badge ${ch.primary ? "primary" : "secondary"}">${ch.primary ? t("radio.channels.primary") : t("radio.channels.secondary")}</span></td>
+                      <td>${ch.psk ? t("common.yes") : t("common.no")}</td>
+                      <td>${ch.uplink ? t("common.yes") : t("common.no")}</td>
+                      <td>${ch.downlink ? t("common.yes") : t("common.no")}</td>
                     </tr>
                   `)}
                 </tbody>
@@ -962,10 +968,10 @@ export class MeshMessagesTab extends LitElement {
     return html`
       <div class="messages-layout">
         <div class="conversation-list">
-          <div class="conversation-header">Channels</div>
+          <div class="conversation-header">${t("messages.channels_header")}</div>
           ${defaultChannels.map((ch) => {
             const badge = this.unreadCounts?.[ch] || 0;
-            const label = this.channelNames?.[ch] || (ch === "0" ? "Primary" : `Channel ${ch}`);
+            const label = this.channelNames?.[ch] || (ch === "0" ? t("messages.channel_primary") : t("messages.channel_name", { index: ch }));
             const hasMessages = (this.messages[ch]?.length || 0) > 0;
             return html`
               <div
@@ -975,7 +981,7 @@ export class MeshMessagesTab extends LitElement {
                 <span class="conv-name">${label}</span>
                 ${badge > 0 ? html`<span class="conv-badge">${badge}</span>` : ""}
                 ${hasMessages ? html`
-                  <button class="conv-clear" title="Clear messages in this channel"
+                  <button class="conv-clear" title=${t("messages.clear_channel")}
                     @click=${(e) => this._requestClear(e, ch, label)}>
                     <ha-icon icon="mdi:trash-can-outline"></ha-icon>
                   </button>
@@ -984,7 +990,7 @@ export class MeshMessagesTab extends LitElement {
             `;
           })}
           ${this.dms.length ? html`
-            <div class="conversation-header">Direct Messages</div>
+            <div class="conversation-header">${t("messages.dms_header")}</div>
             ${this.dms.map((dm) => {
               const name = this._getNodeName(dm) || dm;
               const badge = this.unreadCounts?.[dm] || 0;
@@ -995,7 +1001,7 @@ export class MeshMessagesTab extends LitElement {
                 >
                   <span class="conv-name">${name}</span>
                   ${badge > 0 ? html`<span class="conv-badge">${badge}</span>` : ""}
-                  <button class="conv-clear" title="Delete this conversation"
+                  <button class="conv-clear" title=${t("messages.delete_conversation")}
                     @click=${(e) => this._requestClear(e, dm, name)}>
                     <ha-icon icon="mdi:trash-can-outline"></ha-icon>
                   </button>
@@ -1009,7 +1015,7 @@ export class MeshMessagesTab extends LitElement {
           <div class="chat-messages">
             ${currentMessages.map((msg, i) => {
               const isOutgoing = msg.type === "sent" || msg._outgoing;
-              const senderName = this._getNodeName(msg.from) || msg.from || "Unknown";
+              const senderName = this._getNodeName(msg.from) || msg.from || t("common.unknown");
               const delivery = msg.packet_id
                 ? this.deliveryStatuses[msg.packet_id] ||
                   (msg.status ? { status: msg.status, error: msg.error } : null)
@@ -1027,7 +1033,7 @@ export class MeshMessagesTab extends LitElement {
               return html`
                 ${showDateSep ? html`<div class="date-separator">${formatDateLabel(msg.timestamp)}</div>` : ""}
                 ${showUnreadDivider ? html`
-                  <div class="unread-divider"><span>${unreadCount} new message${unreadCount !== 1 ? "s" : ""}</span></div>
+                  <div class="unread-divider"><span>${t("messages.new_messages", { count: unreadCount })}</span></div>
                 ` : ""}
                 <div class="chat-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"} ${isUnread ? "unread" : ""}"
                   @touchstart=${hasActions ? (e) => this._onTouchStart(e) : null}
@@ -1040,18 +1046,18 @@ export class MeshMessagesTab extends LitElement {
                       <div class="sender">${senderName}</div>
                       ${quotedMsg ? html`
                         <div class="quoted-reply">
-                          <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || "Unknown"}</span>
+                          <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || t("common.unknown")}</span>
                           ${(quotedMsg.text || "").slice(0, 60)}${(quotedMsg.text || "").length > 60 ? "\u2026" : ""}
                         </div>
                       ` : ""}
                       <div>${msg.text}</div>
                       <div class="time">
-                        ${formatTime(msg.timestamp)}${msg.hops_away != null ? html`<span class="hops-badge" title="${msg.hops_away === 0 ? "Direct" : `${msg.hops_away} hop${msg.hops_away !== 1 ? "s" : ""}` }"><svg viewBox="0 0 255.55 196.22" fill="var(--secondary-text-color)"><path d="M229.68,195.41c1.62-1.37,1.32-4.91.91-6.72-.6-2.72-1.79-5.01-3.06-7.56-3.33-6.66-5.8-13.44-6.67-20.94,4.99.71,9.32,11.55,11.07,15.47,3.31,7.4,8.68,17.78,17.4,19.66,2.05.44,4.52.14,5.66-1.67,2.13-3.41-2.27-10.5-4.47-13.57-5.81-8.09-9.78-16.67-13.02-26.04-1.25-3.6-2.07-7.37-5.06-10.04-.75-.67-2.16-1.4-3.16-1.47l-3.81-.23c-7.54-.47-15.84-2.22-18.71-10.53-2.61-7.56.88-13.47-.64-22.58-.28-1.68-.33-3.33-.15-5.05,9.55-4.94,11.19-14.58,7.06-23.61-.84-1.84-1.71-3.55-3.01-5.08-4.1-4.83-10.38,6.56-14.15,8.72-20.83-24.43-57.51-33.07-87.56-32.87-5.23.04-9.96.09-15.13.7-7.99.95-17.35,1.07-23.63-4.74-1.23-1.14-2.59-2.98-2.15-4.55.77-2.75,17.44-1.94,20.6-2.15,13.7-.92,26.37-5.31,37.99-12.74,3.9-2.5,7.72-4.73,10-8.81,3.05-5.46-10.01-4.71-12.87-4.96-2.49-.22-4.83-.14-7.23-.52,3.4-3.3,8.57-7.05,9.09-11.29.44-3.55-11.02-1.85-13.51-1.55-5.94.71-11.63.94-17.58,2.08-9.61,1.84-18.26,5.95-26.34,11.32l-15.29,10.15c-3.16,2.1-6.44,2.64-10.28,2.59-19.77-.26-28.71,12.78-38.77,26.95-3.76,5.3,2.44,13.5,8.25,16.48,13.33,6.85,28.74-.82,35.52,18.08-1.49,1.16-2.85,1.32-4.35,1.67l-19.3,4.53C17.98,95.78-.5,103.25.01,109.91c.19,2.45,2.67,3.74,4.96,3.98,4.26.44,8.39-.98,12.24-3.06,6.37-3.44,13.12-5.53,20.55-5.56-6.57,3.22-12.79,6.85-18.27,11.81-3.36,3.04-7.47,9.88-4.16,13.18,1.09,1.09,2.71,1.52,4.51,1.3,8.26-1,13.77-8.84,23.34-12.54,7.83-3.02,15.89-4.51,24.23-5.42,3.66-.4,7.71-.41,10.26-.67,5.28-.53,10.64-.33,15.96,0l4.77.29,4.11.44c12.5,1.35,24.74,4.23,36.47,9.39l12.36,5.43c7.46,15.79,19.77,28.05,37.33,30.16l7.16.86c2.98.36,6.24-.57,9.19.77,3.24,1.47,5.02,10.98,5.95,14.55,1.95,7.52,6.51,19.39,15.05,21.25,1.44.31,2.77.08,3.65-.68Z"/></svg>${msg.hops_away > 0 ? `×${msg.hops_away}` : ""}</span>` : ""}${delivery ? html`<span class="delivery-icon ${delivery.status}" title="${delivery.status === "delivered" ? "Delivered" : delivery.status === "failed" ? `Failed${delivery.error ? `: ${delivery.error}` : ""}` : delivery.status === "timeout" ? "No acknowledgement received" : "Sending\u2026"}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : delivery.status === "timeout" ? "?" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="Channel ${msg.channel}">\uD83D\uDD12</span>` : ""}
+                        ${formatTime(msg.timestamp)}${msg.hops_away != null ? html`<span class="hops-badge" title="${msg.hops_away === 0 ? t("messages.hops.direct") : t("messages.hops.count", { count: msg.hops_away })}"><svg viewBox="0 0 255.55 196.22" fill="var(--secondary-text-color)"><path d="M229.68,195.41c1.62-1.37,1.32-4.91.91-6.72-.6-2.72-1.79-5.01-3.06-7.56-3.33-6.66-5.8-13.44-6.67-20.94,4.99.71,9.32,11.55,11.07,15.47,3.31,7.4,8.68,17.78,17.4,19.66,2.05.44,4.52.14,5.66-1.67,2.13-3.41-2.27-10.5-4.47-13.57-5.81-8.09-9.78-16.67-13.02-26.04-1.25-3.6-2.07-7.37-5.06-10.04-.75-.67-2.16-1.4-3.16-1.47l-3.81-.23c-7.54-.47-15.84-2.22-18.71-10.53-2.61-7.56.88-13.47-.64-22.58-.28-1.68-.33-3.33-.15-5.05,9.55-4.94,11.19-14.58,7.06-23.61-.84-1.84-1.71-3.55-3.01-5.08-4.1-4.83-10.38,6.56-14.15,8.72-20.83-24.43-57.51-33.07-87.56-32.87-5.23.04-9.96.09-15.13.7-7.99.95-17.35,1.07-23.63-4.74-1.23-1.14-2.59-2.98-2.15-4.55.77-2.75,17.44-1.94,20.6-2.15,13.7-.92,26.37-5.31,37.99-12.74,3.9-2.5,7.72-4.73,10-8.81,3.05-5.46-10.01-4.71-12.87-4.96-2.49-.22-4.83-.14-7.23-.52,3.4-3.3,8.57-7.05,9.09-11.29.44-3.55-11.02-1.85-13.51-1.55-5.94.71-11.63.94-17.58,2.08-9.61,1.84-18.26,5.95-26.34,11.32l-15.29,10.15c-3.16,2.1-6.44,2.64-10.28,2.59-19.77-.26-28.71,12.78-38.77,26.95-3.76,5.3,2.44,13.5,8.25,16.48,13.33,6.85,28.74-.82,35.52,18.08-1.49,1.16-2.85,1.32-4.35,1.67l-19.3,4.53C17.98,95.78-.5,103.25.01,109.91c.19,2.45,2.67,3.74,4.96,3.98,4.26.44,8.39-.98,12.24-3.06,6.37-3.44,13.12-5.53,20.55-5.56-6.57,3.22-12.79,6.85-18.27,11.81-3.36,3.04-7.47,9.88-4.16,13.18,1.09,1.09,2.71,1.52,4.51,1.3,8.26-1,13.77-8.84,23.34-12.54,7.83-3.02,15.89-4.51,24.23-5.42,3.66-.4,7.71-.41,10.26-.67,5.28-.53,10.64-.33,15.96,0l4.77.29,4.11.44c12.5,1.35,24.74,4.23,36.47,9.39l12.36,5.43c7.46,15.79,19.77,28.05,37.33,30.16l7.16.86c2.98.36,6.24-.57,9.19.77,3.24,1.47,5.02,10.98,5.95,14.55,1.95,7.52,6.51,19.39,15.05,21.25,1.44.31,2.77.08,3.65-.68Z"/></svg>${msg.hops_away > 0 ? `×${msg.hops_away}` : ""}</span>` : ""}${delivery ? html`<span class="delivery-icon ${delivery.status}" title="${delivery.status === "delivered" ? t("messages.delivery.delivered") : delivery.status === "failed" ? (delivery.error ? t("messages.delivery.failed_with_error", { error: delivery.error }) : t("messages.delivery.failed")) : delivery.status === "timeout" ? t("messages.delivery.timeout") : t("messages.delivery.sending")}">${delivery.status === "delivered" ? "\u2713\u2713" : delivery.status === "failed" ? "\u2717" : delivery.status === "timeout" ? "?" : "\u231B"}</span>` : ""}${msg.channel != null ? html`<span class="encryption-badge" title="${t("messages.channel_name", { index: msg.channel })}">\uD83D\uDD12</span>` : ""}
                       </div>
                     </div>
                     ${hasActions ? html`
                       <div class="bubble-actions">
-                        <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title="Reply">\u21A9</button>
+                        <button class="bubble-action-btn" @click=${() => this._startReply(msg)} title=${t("messages.reply")}>\u21A9</button>
                       </div>
                     ` : ""}
                   </div>
@@ -1061,9 +1067,9 @@ export class MeshMessagesTab extends LitElement {
             ${!currentMessages.length ? html`
               <div class="empty-state">
                 <ha-icon icon="mdi:message-text-outline"></ha-icon>
-                <div>No messages yet</div>
+                <div>${t("messages.empty.title")}</div>
                 <div style="font-size: 13px; margin-top: 8px;">
-                  Send a message below or wait for messages from the mesh.
+                  ${t("messages.empty.hint")}
                 </div>
               </div>
             ` : ""}
@@ -1071,35 +1077,35 @@ export class MeshMessagesTab extends LitElement {
 
           ${this._replyTo ? html`
             <div class="reply-banner">
-              <span class="reply-sender">${this._getNodeName(this._replyTo.from) || this._replyTo.from || "Unknown"}</span>
+              <span class="reply-sender">${this._getNodeName(this._replyTo.from) || this._replyTo.from || t("common.unknown")}</span>
               <span class="reply-text">${(this._replyTo.text || "").slice(0, 80)}${(this._replyTo.text || "").length > 80 ? "\u2026" : ""}</span>
-              <button class="reply-cancel" @click=${() => { this._replyTo = null; }}>\u00D7</button>
+              <button class="reply-cancel" title=${t("messages.cancel_reply")} @click=${() => { this._replyTo = null; }}>\u00D7</button>
             </div>
           ` : ""}
 
           <div class="chat-input-row">
             <input
               type="text"
-              placeholder="${this._replyTo ? "Reply\u2026" : "Type a message\u2026"}"
+              placeholder="${this._replyTo ? t("messages.compose.reply_placeholder") : t("messages.compose.placeholder")}"
               .value=${this._messageInput}
               @input=${(e) => { this._messageInput = e.target.value; this.requestUpdate(); }}
               @keydown=${this._onKeydown}
               maxlength="228"
             />
-            <button class="send-btn" @click=${this._sendMessage} ?disabled=${!this._messageInput.trim()}>Send</button>
+            <button class="send-btn" @click=${this._sendMessage} ?disabled=${!this._messageInput.trim()}>${t("messages.compose.send")}</button>
           </div>
           <div class="chat-input-meta">
             <span></span>
-            <span class="byte-counter ${this._byteCount > 200 ? (this._byteCount > 228 ? "over" : "warn") : ""}">${this._byteCount}/228 bytes</span>
+            <span class="byte-counter ${this._byteCount > 200 ? (this._byteCount > 228 ? "over" : "warn") : ""}">${t("messages.compose.byte_counter", { used: this._byteCount, max: 228 })}</span>
           </div>
         </div>
       </div>
 
       <mesh-confirm-dialog
         .open=${this._pendingClear != null}
-        title="Clear conversation"
-        .message=${this._pendingClear ? `Delete all messages in "${this._pendingClear.label}"? This action cannot be undone.` : ""}
-        confirmLabel="Clear"
+        title=${t("messages.clear_dialog.title")}
+        .message=${this._pendingClear ? t("messages.clear_dialog.message", { label: this._pendingClear.label }) : ""}
+        confirmLabel=${t("messages.clear_dialog.confirm")}
         .danger=${true}
         @confirm=${this._confirmClear}
         @cancel=${() => { this._pendingClear = null; }}
@@ -1468,57 +1474,57 @@ export class MeshNodesTab extends LitElement {
         <div class="filter-row-main">
           <input
             class="search-input" type="text"
-            placeholder="Search nodes by name or ID..."
+            placeholder=${t("nodes.filters.search_placeholder")}
             .value=${this._searchText}
             @input=${(e) => { this._searchText = e.target.value; this.requestUpdate(); }}
           />
           <button class="filter-toggle-btn"
             @click=${() => { this._filtersExpanded = !this._filtersExpanded; this._saveFilterState(); this.requestUpdate(); }}
-          >Filters ${this._filtersExpanded ? "\u25B2" : "\u25BC"}</button>
+          >${t("nodes.filters.toggle")} ${this._filtersExpanded ? "\u25B2" : "\u25BC"}</button>
         </div>
         ${this._filtersExpanded ? html`
           <div class="filter-row-advanced">
             <div class="filter-group">
-              <label>Last Heard</label>
+              <label>${t("nodes.filters.last_heard")}</label>
               <select .value=${this._filterLastHeard}
                 @change=${(e) => { this._filterLastHeard = e.target.value; this._saveFilterState(); this.requestUpdate(); }}>
-                <option value="all">All Time</option>
-                <option value="1h">Last Hour</option>
-                <option value="6h">Last 6 Hours</option>
-                <option value="24h">Last 24 Hours</option>
-                <option value="7d">Last 7 Days</option>
+                <option value="all">${t("views.window.all_time")}</option>
+                <option value="1h">${t("views.window.1h")}</option>
+                <option value="6h">${t("views.window.6h")}</option>
+                <option value="24h">${t("views.window.24h")}</option>
+                <option value="7d">${t("views.window.7d")}</option>
               </select>
             </div>
             <div class="filter-group">
-              <label>Min Battery %</label>
+              <label>${t("nodes.filters.min_battery")}</label>
               <input type="number" min="0" max="100"
                 .value=${String(this._filterBatteryMin)}
                 @change=${(e) => { this._filterBatteryMin = parseInt(e.target.value) || 0; this._saveFilterState(); this.requestUpdate(); }}
                 style="width: 70px;" />
             </div>
             <div class="filter-group">
-              <label>Max Hops</label>
+              <label>${t("nodes.filters.max_hops")}</label>
               <input type="number" min="0" max="10"
                 .value=${this._filterHopsMax != null ? String(this._filterHopsMax) : ""}
-                placeholder="Any"
+                placeholder=${t("nodes.filters.any")}
                 @change=${(e) => { const v = e.target.value; this._filterHopsMax = v !== "" ? parseInt(v) : null; this._saveFilterState(); this.requestUpdate(); }}
                 style="width: 70px;" />
             </div>
             <div class="filter-group">
-              <label>Source</label>
+              <label>${t("nodes.filters.source")}</label>
               <select .value=${this._filterSource}
                 @change=${(e) => { this._filterSource = e.target.value; this._saveFilterState(); this.requestUpdate(); }}>
                 <option value="all">RF + MQTT</option>
-                <option value="rf">RF Only</option>
-                <option value="mqtt">MQTT Only</option>
+                <option value="rf">${t("nodes.filters.source_rf")}</option>
+                <option value="mqtt">${t("nodes.filters.source_mqtt")}</option>
               </select>
             </div>
             <div class="filter-group">
-              <label>Show</label>
+              <label>${t("nodes.filters.show")}</label>
               <select .value=${this._filterFavorites ? "favorites" : "all"}
                 @change=${(e) => { this._filterFavorites = e.target.value === "favorites"; this._saveFilterState(); this.requestUpdate(); }}>
-                <option value="all">All Nodes</option>
-                <option value="favorites">Favorites Only</option>
+                <option value="all">${t("nodes.filters.all_nodes")}</option>
+                <option value="favorites">${t("nodes.filters.favorites_only")}</option>
               </select>
             </div>
           </div>
@@ -1534,25 +1540,25 @@ export class MeshNodesTab extends LitElement {
     const ignSet = new Set(this.ignoredNodes || []);
     const columns = [
       { key: "_fav", label: "\u2606" },
-      { key: "name", label: "Name" },
+      { key: "name", label: t("nodes.columns.name") },
       { key: "snr", label: "SNR" },
       { key: "rssi", label: "RSSI" },
-      { key: "hops", label: "Hops" },
-      { key: "battery", label: "Battery" },
-      { key: "_last_seen", label: "Last Seen" },
+      { key: "hops", label: t("nodes.columns.hops") },
+      { key: "battery", label: t("nodes.columns.battery") },
+      { key: "_last_seen", label: t("nodes.columns.last_seen") },
     ];
 
     if (!totalCount) {
       return html`
         <div class="empty-state">
           <ha-icon icon="mdi:access-point-network-off"></ha-icon>
-          <div>No mesh nodes discovered yet</div>
-          <div style="font-size: 13px; margin-top: 8px;">Nodes will appear as they communicate on the mesh.</div>
+          <div>${t("nodes.empty.title")}</div>
+          <div style="font-size: 13px; margin-top: 8px;">${t("nodes.empty.hint")}</div>
         </div>
       `;
     }
     if (!sortedNodes.length) {
-      return html`<div class="empty-state"><div>No nodes match the current filters</div></div>`;
+      return html`<div class="empty-state"><div>${t("nodes.empty.no_matches")}</div></div>`;
     }
 
     return html`
@@ -1582,12 +1588,12 @@ export class MeshNodesTab extends LitElement {
                     <td>
                       <span class="fav-star ${isFav ? "active" : ""}"
                         @click=${(e) => { e.stopPropagation(); this._fireNodeAction(isFav ? "unfavorite" : "favorite", nodeId); }}
-                        title="${isFav ? "Remove from favorites" : "Add to favorites"}"
+                        title="${isFav ? t("nodes.favorite.remove") : t("nodes.favorite.add")}"
                       >${isFav ? "\u2605" : "\u2606"}</span>
                     </td>
                     <td>
                       <span class="node-name-cell">
-                        ${node.name || nodeId}${node.via_mqtt ? html`<span class="mqtt-badge">MQTT</span>` : ""}${isIgn ? html`<span class="ignored-badge">IGN</span>` : ""}
+                        ${node.name || nodeId}${node.via_mqtt ? html`<span class="mqtt-badge">MQTT</span>` : ""}${isIgn ? html`<span class="ignored-badge">${t("nodes.badge.ignored_short")}</span>` : ""}
                       </span>
                     </td>
                     <td>${node.snr ?? "\u2014"}</td>
@@ -1750,58 +1756,58 @@ export class MeshNodesTab extends LitElement {
           <div class="dialog-header">
             <span class="fav-star ${isFav ? "active" : ""}" style="font-size:22px;margin-right:8px;"
               @click=${() => this._fireNodeAction(isFav ? "unfavorite" : "favorite", nodeId)}
-              title="${isFav ? "Remove from favorites" : "Add to favorites"}"
+              title="${isFav ? t("nodes.favorite.remove") : t("nodes.favorite.add")}"
             >${isFav ? "\u2605" : "\u2606"}</span>
-            <div class="dialog-title">${node.name || nodeId}${isIgn ? html`<span class="ignored-badge" style="margin-left:8px;">IGNORED</span>` : ""}</div>
-            <button class="dialog-close" @click=${this._closeNodeDialog}>\u00D7</button>
+            <div class="dialog-title">${node.name || nodeId}${isIgn ? html`<span class="ignored-badge" style="margin-left:8px;">${t("nodes.badge.ignored")}</span>` : ""}</div>
+            <button class="dialog-close" title=${t("common.close")} @click=${this._closeNodeDialog}>\u00D7</button>
           </div>
           <div class="dialog-body">
             <div class="dialog-section">
-              <div class="section-title">Identity</div>
+              <div class="section-title">${t("nodes.dialog.identity")}</div>
               <div class="metrics-grid">
-                ${renderMetric("Node ID", nodeId)}
-                ${renderMetric("Short Name", node.short_name)}
-                ${renderMetric("Long Name", node.name)}
-                ${renderMetric("Hardware", formatHardware(node.hardware_model || node.model))}
-                ${renderMetric("Last Seen", formatLastSeen(node._last_seen))}
+                ${renderMetric(t("nodes.dialog.node_id"), nodeId)}
+                ${renderMetric(t("nodes.dialog.short_name"), node.short_name)}
+                ${renderMetric(t("nodes.dialog.long_name"), node.name)}
+                ${renderMetric(t("nodes.dialog.hardware"), formatHardware(node.hardware_model || node.model))}
+                ${renderMetric(t("nodes.dialog.last_seen"), formatLastSeen(node._last_seen))}
               </div>
             </div>
             <div class="dialog-section">
-              <div class="section-title">Radio</div>
+              <div class="section-title">${t("nodes.dialog.radio")}</div>
               <div class="metrics-grid">
                 ${renderMetric("SNR", node.snr != null ? Math.round(node.snr * 10) / 10 : null, " dB")}
                 ${renderMetric("RSSI", node.rssi != null ? Math.round(node.rssi) : null, " dBm")}
-                ${renderMetric("Hops", node.hops)}
-                ${renderMetric("Heard Via", node.via_mqtt != null ? (node.via_mqtt ? "MQTT" : "Radio") : null)}
-                ${renderMetric("Air Util TX", node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
-                ${renderMetric("Ch. Util", node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
+                ${renderMetric(t("nodes.dialog.hops"), node.hops)}
+                ${renderMetric(t("nodes.dialog.heard_via"), node.via_mqtt != null ? (node.via_mqtt ? "MQTT" : t("nodes.dialog.heard_via_radio")) : null)}
+                ${renderMetric(t("nodes.dialog.air_util_tx"), node.air_util_tx != null ? Math.round(node.air_util_tx * 100) / 100 : null, "%")}
+                ${renderMetric(t("nodes.dialog.channel_utilization"), node.channel_utilization != null ? Math.round(node.channel_utilization * 100) / 100 : null, "%")}
               </div>
             </div>
             <div class="dialog-section">
-              <div class="section-title">Power</div>
+              <div class="section-title">${t("nodes.dialog.power")}</div>
               <div class="metrics-grid">
-                ${renderMetric("Battery", node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
-                ${renderMetric("Voltage", node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
-                ${renderMetric("Uptime", node.uptime ? formatUptime(node.uptime) : null)}
+                ${renderMetric(t("nodes.dialog.battery"), node.battery != null ? Math.round(Math.min(node.battery, 100) * 100) / 100 : null, "%")}
+                ${renderMetric(t("nodes.dialog.voltage"), node.voltage != null ? Math.round(node.voltage * 100) / 100 : null, " V")}
+                ${renderMetric(t("nodes.dialog.uptime"), node.uptime ? formatUptime(node.uptime) : null)}
               </div>
             </div>
             ${node.temperature != null || node.humidity != null || node.pressure != null ? html`
               <div class="dialog-section">
-                <div class="section-title">Environment</div>
+                <div class="section-title">${t("nodes.dialog.environment")}</div>
                 <div class="metrics-grid">
-                  ${renderMetric("Temperature", node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
-                  ${renderMetric("Humidity", node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
-                  ${renderMetric("Pressure", node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
+                  ${renderMetric(t("nodes.dialog.temperature"), node.temperature != null ? Math.round(node.temperature * 10) / 10 : null, "\u00B0C")}
+                  ${renderMetric(t("nodes.dialog.humidity"), node.humidity != null ? Math.round(node.humidity * 10) / 10 : null, "%")}
+                  ${renderMetric(t("nodes.dialog.pressure"), node.pressure != null ? Math.round(node.pressure * 10) / 10 : null, " hPa")}
                 </div>
               </div>
             ` : ""}
             ${node.latitude != null || node.longitude != null ? html`
               <div class="dialog-section">
-                <div class="section-title">Position</div>
+                <div class="section-title">${t("nodes.dialog.position")}</div>
                 <div class="metrics-grid">
-                  ${renderMetric("Latitude", node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
-                  ${renderMetric("Longitude", node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
-                  ${renderMetric("Altitude", node.altitude != null ? Math.round(node.altitude) : null, " m")}
+                  ${renderMetric(t("nodes.dialog.latitude"), node.latitude != null ? Math.round(node.latitude * 100000) / 100000 : null)}
+                  ${renderMetric(t("nodes.dialog.longitude"), node.longitude != null ? Math.round(node.longitude * 100000) / 100000 : null)}
+                  ${renderMetric(t("nodes.dialog.altitude"), node.altitude != null ? Math.round(node.altitude) : null, " m")}
                 </div>
               </div>
             ` : ""}
@@ -1809,25 +1815,25 @@ export class MeshNodesTab extends LitElement {
 
           <div class="dialog-actions">
             <button class="action-btn primary" @click=${() => this._fireNodeAction("send-message", nodeId)}>
-              <ha-icon icon="mdi:message-text" style="--mdc-icon-size: 16px;"></ha-icon> Message
+              <ha-icon icon="mdi:message-text" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.message")}
             </button>
             <button class="action-btn secondary"
               ?disabled=${this.pendingTraceroute === nodeId}
               @click=${() => this._fireNodeAction("trace-route", nodeId)}>
               ${this.pendingTraceroute === nodeId
-                ? html`<span class="spinner"></span> Tracing...`
-                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size: 16px;"></ha-icon> Trace Route`}
+                ? html`<span class="spinner"></span> ${t("nodes.actions.tracing")}`
+                : html`<ha-icon icon="mdi:routes" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.trace_route")}`}
             </button>
             <button class="action-btn secondary"
               ?disabled=${this.pendingPosition === nodeId}
               @click=${() => this._fireNodeAction("request-position", nodeId)}>
               ${this.pendingPosition === nodeId
-                ? html`<span class="spinner"></span> Requesting...`
-                : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> Request Position`}
+                ? html`<span class="spinner"></span> ${t("nodes.actions.requesting")}`
+                : html`<ha-icon icon="mdi:crosshairs-gps" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.request_position")}`}
             </button>
             ${node.latitude != null && node.longitude != null ? html`
             <button class="action-btn secondary" @click=${() => this._fireNodeAction("view-on-map", nodeId)}>
-              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size: 16px;"></ha-icon> View on Map
+              <ha-icon icon="mdi:map-marker" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.view_on_map")}
             </button>
             ` : ""}
             ${!node.name ? html`
@@ -1835,15 +1841,15 @@ export class MeshNodesTab extends LitElement {
               ?disabled=${this.pendingNodeinfo === nodeId}
               @click=${() => this._fireNodeAction("request-nodeinfo", nodeId)}>
               ${this.pendingNodeinfo === nodeId
-                ? html`<span class="spinner"></span> Requesting...`
-                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size: 16px;"></ha-icon> Request Info`}
+                ? html`<span class="spinner"></span> ${t("nodes.actions.requesting")}`
+                : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.request_info")}`}
             </button>
             ` : ""}
             <button class="action-btn secondary" @click=${() => this._fireNodeAction(isIgn ? "unignore" : "ignore", nodeId)}>
-              <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size: 16px;"></ha-icon> ${isIgn ? "Unignore" : "Ignore"}
+              <ha-icon icon="mdi:${isIgn ? "eye" : "eye-off"}" style="--mdc-icon-size: 16px;"></ha-icon> ${isIgn ? t("nodes.actions.unignore") : t("nodes.actions.ignore")}
             </button>
             <button class="action-btn danger" @click=${() => this._confirmRemove(nodeId)}>
-              <ha-icon icon="mdi:delete" style="--mdc-icon-size: 16px;"></ha-icon> Remove
+              <ha-icon icon="mdi:delete" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.remove")}
             </button>
             ${this._actionFeedback
               ? html`<span class="action-feedback">${this._actionFeedback}</span>`
@@ -1855,7 +1861,7 @@ export class MeshNodesTab extends LitElement {
   }
 
   _confirmRemove(nodeId) {
-    if (confirm(`Remove node ${this._selectedNode?.name || nodeId} from the mesh database?`)) {
+    if (confirm(t("nodes.actions.remove_confirm", { name: this._selectedNode?.name || nodeId }))) {
       this._fireNodeAction("remove", nodeId);
     }
   }
@@ -2171,8 +2177,8 @@ export class MeshMapTab extends LitElement {
       return html`
         <div class="empty-state">
           <ha-icon icon="mdi:map-marker-off"></ha-icon>
-          <div>Failed to load map</div>
-          <div style="font-size: 13px; margin-top: 8px;">Could not load Leaflet mapping library.</div>
+          <div>${t("map.load_failed.title")}</div>
+          <div style="font-size: 13px; margin-top: 8px;">${t("map.load_failed.hint")}</div>
         </div>
       `;
     }
@@ -2180,7 +2186,7 @@ export class MeshMapTab extends LitElement {
       return html`
         <div class="empty-state">
           <ha-icon icon="mdi:map-clock"></ha-icon>
-          <div>Loading map...</div>
+          <div>${t("map.loading")}</div>
         </div>
       `;
     }
@@ -2209,38 +2215,38 @@ export class MeshMapTab extends LitElement {
         <div id="mesh-map" class="map-element"></div>
         <div class="map-controls">
           <button class="layer-btn ${this._showNodes ? "active" : ""}"
-            @click=${() => this._toggleLayer("nodes")}>Nodes (${nodesWithPosition.length})</button>
+            @click=${() => this._toggleLayer("nodes")}>${t("map.layers.nodes", { count: nodesWithPosition.length })}</button>
           <button class="layer-btn ${this._showWaypoints ? "active" : ""}"
-            @click=${() => this._toggleLayer("waypoints")}>Waypoints (${wpCount})</button>
+            @click=${() => this._toggleLayer("waypoints")}>${t("map.layers.waypoints", { count: wpCount })}</button>
           <button class="layer-btn ${this._showSnrLines ? "active" : ""}"
-            @click=${() => this._toggleLayer("snr")}>SNR Lines${snrCount > 0 ? ` (${snrCount})` : ""}</button>
+            @click=${() => this._toggleLayer("snr")}>${snrCount > 0 ? t("map.layers.snr_lines_count", { count: snrCount }) : t("map.layers.snr_lines")}</button>
           <button class="layer-btn ${this._showTraceroutes ? "active" : ""}"
-            @click=${() => this._toggleLayer("traceroutes")}>Routes${routeCount > 0 ? ` (${routeCount})` : ""}</button>
+            @click=${() => this._toggleLayer("traceroutes")}>${routeCount > 0 ? t("map.layers.routes_count", { count: routeCount }) : t("map.layers.routes")}</button>
           <button class="layer-btn ${this._hideMqttNodes ? "active" : ""}"
             @click=${this._toggleHideMqtt}
-            title="Hide nodes only heard via MQTT">Hide MQTT</button>
-          <button class="locate-btn" @click=${() => this._locateUser()} title="Find my location">
-            \u25CE Locate
+            title=${t("map.layers.hide_mqtt_title")}>${t("map.layers.hide_mqtt")}</button>
+          <button class="locate-btn" @click=${() => this._locateUser()} title=${t("map.locate_title")}>
+            \u25CE ${t("map.locate")}
           </button>
           <button class="layer-btn ${this._mapStyle === "light" ? "active" : ""}"
-            @click=${() => this._setMapStyle("light")} title="Light map">
-            \u2600 Light
+            @click=${() => this._setMapStyle("light")} title=${t("map.style.light_title")}>
+            \u2600 ${t("map.style.light")}
           </button>
           <button class="layer-btn ${this._mapStyle === "dark" ? "active" : ""}"
-            @click=${() => this._setMapStyle("dark")} title="Dark map">
-            \u263D Dark
+            @click=${() => this._setMapStyle("dark")} title=${t("map.style.dark_title")}>
+            \u263D ${t("map.style.dark")}
           </button>
           <button class="layer-btn ${this._mapStyle === "satellite" ? "active" : ""}"
-            @click=${() => this._setMapStyle("satellite")} title="Satellite imagery">
-            \u{1F30D} Satellite
+            @click=${() => this._setMapStyle("satellite")} title=${t("map.style.satellite_title")}>
+            \u{1F30D} ${t("map.style.satellite")}
           </button>
         </div>
         ${nodesWithout > 0 ? html`
-          <div class="map-info-badge">${nodesWithout} node${nodesWithout !== 1 ? "s" : ""} without position</div>
+          <div class="map-info-badge">${t("map.nodes_without_position", { count: nodesWithout })}</div>
         ` : ""}
         <button class="wp-fab ${this._addingWaypoint ? "active" : ""}"
           @click=${this._toggleAddWaypoint}
-          title="${this._addingWaypoint ? "Cancel" : "Add waypoint"}">
+          title="${this._addingWaypoint ? t("common.cancel") : t("map.waypoint.add")}">
           ${this._addingWaypoint ? "\u00D7" : "+"}
         </button>
       </div>
@@ -2262,13 +2268,13 @@ export class MeshMapTab extends LitElement {
       <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) this._tracerouteDialogData = null; this.requestUpdate(); }}>
         <div class="traceroute-card">
           <div class="traceroute-header">
-            <div class="title">Traceroute: ${this._getNodeName(data.to)} \u2192 ${this._getNodeName(data.from)}</div>
-            <button class="close" @click=${() => { this._tracerouteDialogData = null; this.requestUpdate(); }}>\u00D7</button>
+            <div class="title">${t("map.traceroute.title", { source: this._getNodeName(data.to), destination: this._getNodeName(data.from) })}</div>
+            <button class="close" title=${t("common.close")} @click=${() => { this._tracerouteDialogData = null; this.requestUpdate(); }}>\u00D7</button>
           </div>
           <div class="traceroute-body">
-            <div class="route-summary">${nLinks === 1 ? "Direct connection" : `${nLinks - 1} intermediate hop${nLinks > 2 ? "s" : ""}`}</div>
+            <div class="route-summary">${nLinks === 1 ? t("map.traceroute.direct") : t("map.traceroute.intermediate_hops", { count: nLinks - 1 })}</div>
             ${hops.map((hopId, i) => {
-              const label = i === 0 ? "Source" : i === hops.length - 1 ? "Destination" : `Hop ${i}`;
+              const label = i === 0 ? t("map.traceroute.source") : i === hops.length - 1 ? t("map.traceroute.destination") : t("map.traceroute.hop", { index: i });
               const badgeClass = i === 0 ? "source" : i === hops.length - 1 ? "dest" : "hop";
               const fwd = i > 0 ? snrFwd[i - 1] : null;
               const ret = (i > 0 && !hasReturnRoute) ? snrRet[nLinks - i] : null;
@@ -2289,10 +2295,10 @@ export class MeshMapTab extends LitElement {
               `;
             })}
             ${hasReturnRoute ? html`
-              <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">Return Route (different path)</div>
+              <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--secondary-text-color);text-transform:uppercase;">${t("map.traceroute.return_route")}</div>
               ${[data.from, ...(data.route_back || []), data.to].map((hopId, i) => {
                 const rhops = [data.from, ...(data.route_back || []), data.to];
-                const label = i === 0 ? "Source" : i === rhops.length - 1 ? "Destination" : `Hop ${i}`;
+                const label = i === 0 ? t("map.traceroute.source") : i === rhops.length - 1 ? t("map.traceroute.destination") : t("map.traceroute.hop", { index: i });
                 const badgeClass = i === 0 ? "source" : i === rhops.length - 1 ? "dest" : "hop";
                 const snr = i > 0 ? snrRet[i - 1] : null;
                 return html`
@@ -2323,27 +2329,27 @@ export class MeshMapTab extends LitElement {
       <div class="traceroute-dialog" @click=${(e) => { if (e.target.classList.contains("traceroute-dialog")) { this._waypointDialog = null; } }}>
         <div class="traceroute-card">
           <div class="traceroute-header">
-            <div class="title">Create Waypoint</div>
-            <button class="close" @click=${() => { this._waypointDialog = null; }}>&times;</button>
+            <div class="title">${t("map.waypoint.create_title")}</div>
+            <button class="close" title=${t("common.close")} @click=${() => { this._waypointDialog = null; }}>&times;</button>
           </div>
           <div class="traceroute-body">
             <div class="wp-form">
               <div class="wp-coords">${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
               <div>
-                <label>Name *</label>
-                <input id="wp-name" type="text" placeholder="Waypoint name" maxlength="30" />
+                <label>${t("map.waypoint.name_label")}</label>
+                <input id="wp-name" type="text" placeholder=${t("map.waypoint.name_placeholder")} maxlength="30" />
               </div>
               <div>
-                <label>Description</label>
-                <input id="wp-desc" type="text" placeholder="Optional description" maxlength="100" />
+                <label>${t("map.waypoint.description_label")}</label>
+                <input id="wp-desc" type="text" placeholder=${t("map.waypoint.description_placeholder")} maxlength="100" />
               </div>
               <div>
-                <label>Expire (hours, 0 = never)</label>
+                <label>${t("map.waypoint.expire_label")}</label>
                 <input id="wp-expire" type="number" min="0" value="0" />
               </div>
               <div class="wp-actions">
-                <button class="cancel" @click=${() => { this._waypointDialog = null; }}>Cancel</button>
-                <button class="submit" @click=${() => this._submitWaypoint()}>Broadcast to Mesh</button>
+                <button class="cancel" @click=${() => { this._waypointDialog = null; }}>${t("common.cancel")}</button>
+                <button class="submit" @click=${() => this._submitWaypoint()}>${t("map.waypoint.broadcast")}</button>
               </div>
             </div>
           </div>
@@ -2427,7 +2433,7 @@ export class MeshMapTab extends LitElement {
   }
 
   _getNodeName(nodeId) {
-    if (!nodeId) return "Unknown";
+    if (!nodeId) return t("common.unknown");
     const node = this.nodes?.[nodeId];
     return node?.name || node?.short_name || nodeId;
   }
@@ -2650,7 +2656,7 @@ export class MeshMapTab extends LitElement {
       const lon = parseFloat(wp.longitude);
       if (isNaN(lat) || isNaN(lon)) continue;
 
-      const name = wp.name || `Waypoint ${wpId}`;
+      const name = wp.name || t("map.waypoint.fallback_name", { id: wpId });
 
       // Build popup with DOM APIs to prevent XSS from waypoint data
       const popupDiv = document.createElement("div");
@@ -2667,7 +2673,7 @@ export class MeshMapTab extends LitElement {
       if (wp.from) {
         const from = document.createElement("div");
         from.style.cssText = "font-size:11px;color:#888;margin-top:4px;";
-        from.textContent = `From: ${wp.from}`;
+        from.textContent = t("map.waypoint.from", { from: wp.from });
         popupDiv.appendChild(from);
       }
 
@@ -2719,7 +2725,7 @@ export class MeshMapTab extends LitElement {
           opacity: 0.7,
         });
         const name = node.name || node.short_name || nodeId;
-        line.bindTooltip(`${name}: ${node.snr} dB SNR`, { sticky: true });
+        line.bindTooltip(t("map.snr_tooltip", { name, snr: node.snr }), { sticky: true });
         this._snrLineLayer.addLayer(line);
       }
     }
@@ -2778,7 +2784,7 @@ export class MeshMapTab extends LitElement {
         dashArray: "8,4",
       });
       line.bindTooltip(
-        `Route to ${this._getNodeName(destId)} (${allHops.length - 2} hops)`,
+        t("map.route_tooltip", { name: this._getNodeName(destId), count: allHops.length - 2 }),
         { sticky: true }
       );
       line.on("click", () => {
@@ -2920,11 +2926,11 @@ class MeshHorizonChart extends LitElement {
     const value = this.data[startIdx + idx];
     const secsAgo = (visible - 1 - idx) * this.bucketInterval;
     let timeLabel;
-    if (secsAgo === 0) timeLabel = "now";
-    else if (secsAgo < 120) timeLabel = `-${secsAgo}s ago`;
-    else if (secsAgo < 7200) timeLabel = `-${Math.round(secsAgo / 60)}m ago`;
-    else if (secsAgo < 172800) timeLabel = `-${(secsAgo / 3600).toFixed(1)}h ago`;
-    else timeLabel = `-${(secsAgo / 86400).toFixed(1)}d ago`;
+    if (secsAgo === 0) timeLabel = t("views.chart.now");
+    else if (secsAgo < 120) timeLabel = t("views.chart.seconds_ago", { seconds: secsAgo });
+    else if (secsAgo < 7200) timeLabel = t("views.chart.minutes_ago", { minutes: Math.round(secsAgo / 60) });
+    else if (secsAgo < 172800) timeLabel = t("views.chart.hours_ago", { hours: (secsAgo / 3600).toFixed(1) });
+    else timeLabel = t("views.chart.days_ago", { days: (secsAgo / 86400).toFixed(1) });
     this._tooltip = { x, value: Math.round(value * 100) / 100, timeLabel };
   }
 
@@ -3008,12 +3014,12 @@ class MeshHorizonChart extends LitElement {
     ctx.font = "9px sans-serif";
     ctx.textAlign = "left";
     const yTicks = max <= 10 ? 2 : max <= 50 ? 5 : max <= 100 ? 4 : 4;
-    for (let t = 1; t <= yTicks; t++) {
-      const val = (max / yTicks) * t;
+    for (let tick = 1; tick <= yTicks; tick++) {
+      const val = (max / yTicks) * tick;
       const y = h - (val / max) * h;
       ctx.fillStyle = "rgba(128,128,128,0.25)";
       ctx.fillRect(0, y, w, 1);
-      if (t < yTicks) {
+      if (tick < yTicks) {
         ctx.fillStyle = "rgba(128,128,128,0.7)";
         ctx.fillText(`${Math.round(val)}`, 3, y - 2);
       }
@@ -3034,9 +3040,9 @@ class MeshHorizonChart extends LitElement {
       // integer multiples — an 8h step reads -8h/-16h/-24h/-32h instead
       // of -8h/-16h/-1d/-1.3333333333333333d when it crosses a day.
       let label;
-      if (gridStep >= 86400) label = `-${s / 86400}d`;
-      else if (gridStep >= 3600) label = `-${s / 3600}h`;
-      else label = `-${s / 60}m`;
+      if (gridStep >= 86400) label = t("views.chart.axis_days", { days: s / 86400 });
+      else if (gridStep >= 3600) label = t("views.chart.axis_hours", { hours: s / 3600 });
+      else label = t("views.chart.axis_minutes", { minutes: s / 60 });
       ctx.fillStyle = "rgba(128,128,128,0.4)";
       ctx.fillRect(x, 0, 1, h);
       ctx.fillStyle = "rgba(128,128,128,0.8)";
@@ -3116,7 +3122,7 @@ class MeshHorizonChart extends LitElement {
         >
           ${this._d3Ready
             ? html`<canvas height="${this.height}"></canvas>`
-            : html`<div class="loading">Loading D3...</div>`}
+            : html`<div class="loading">${t("views.chart.loading")}</div>`}
           ${tt ? html`
             <div class="crosshair" style="left:${tt.x}px"></div>
             <div class="tooltip" style="left:${tt.x}px">${tt.value}${this.unit ? ` ${this.unit}` : ""} @ ${tt.timeLabel}</div>
@@ -3139,13 +3145,14 @@ const PACKET_TYPE_COLORS = {
   routing: "#78909c",
   other: "#8d6e63",
 };
-const PACKET_TYPE_LABELS = {
-  text: "Text",
-  position: "Position",
-  telemetry: "Telemetry",
-  nodeinfo: "Node Info",
-  routing: "Routing",
-  other: "Other",
+// Translation keys, resolved when the treemap is drawn.
+const PACKET_TYPE_LABEL_KEYS = {
+  text: "views.packet_types.text",
+  position: "views.packet_types.position",
+  telemetry: "views.packet_types.telemetry",
+  nodeinfo: "views.packet_types.nodeinfo",
+  routing: "views.packet_types.routing",
+  other: "views.packet_types.other_type",
 };
 
 class MeshPacketTreemap extends LitElement {
@@ -3213,7 +3220,7 @@ class MeshPacketTreemap extends LitElement {
     for (const [key, arr] of Object.entries(this.data)) {
       const total = arr.reduce((s, v) => s + v, 0);
       if (total > 0) {
-        children.push({ key, total, label: PACKET_TYPE_LABELS[key] || key, color: PACKET_TYPE_COLORS[key] || "#888" });
+        children.push({ key, total, label: PACKET_TYPE_LABEL_KEYS[key] ? t(PACKET_TYPE_LABEL_KEYS[key]) : key, color: PACKET_TYPE_COLORS[key] || "#888" });
       }
     }
 
@@ -3224,7 +3231,7 @@ class MeshPacketTreemap extends LitElement {
       container.style.height = `${h}px`;
       const empty = document.createElement("div");
       empty.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;color:var(--secondary-text-color);font-size:13px;";
-      empty.textContent = "No packets received yet";
+      empty.textContent = t("views.chart.no_packets");
       container.appendChild(empty);
       return;
     }
