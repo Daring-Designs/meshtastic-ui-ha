@@ -20,6 +20,20 @@ WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
 WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
 
 
+def _is_repeated(field: Any) -> bool:
+    """Return whether a protobuf FieldDescriptor is a repeated field.
+
+    protobuf 7 removed ``FieldDescriptor.label`` in favour of
+    ``is_repeated``, which older releases (4.x) don't have.
+    """
+    is_repeated = getattr(field, "is_repeated", None)
+    if is_repeated is not None:
+        return bool(is_repeated)
+    from google.protobuf.descriptor import FieldDescriptor
+
+    return field.label == FieldDescriptor.LABEL_REPEATED
+
+
 def _apply_protobuf_values(
     proto_obj: Any, values: dict[str, Any], context: str = ""
 ) -> None:
@@ -51,7 +65,7 @@ def _apply_protobuf_values(
 
         field = field_map[key]
 
-        if field.message_type is not None and field.label != FieldDescriptor.LABEL_REPEATED:
+        if field.message_type is not None and not _is_repeated(field):
             # Nested sub-message — recurse into it.
             if isinstance(value, dict):
                 sub_msg = getattr(proto_obj, key)
@@ -61,7 +75,7 @@ def _apply_protobuf_values(
                     "Expected dict for sub-message field '%s' in '%s', got %s",
                     key, context or "config", type(value).__name__,
                 )
-        elif field.label == FieldDescriptor.LABEL_REPEATED:
+        elif _is_repeated(field):
             # Repeated field — clear and extend.
             repeated = getattr(proto_obj, key)
             del repeated[:]
@@ -140,7 +154,7 @@ def _fill_enum_defaults(proto_obj: Any, d: dict[str, Any]) -> None:
                     d[field.name] = enum_val.name
         elif (
             field.message_type is not None
-            and field.label != FieldDescriptor.LABEL_REPEATED
+            and not _is_repeated(field)
         ):
             sub_dict = d.get(field.name)
             if isinstance(sub_dict, dict):

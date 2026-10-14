@@ -205,3 +205,14 @@ class TestSetConfigFixedPosition:
 
         node.removeFixedPosition.assert_called_once()
         node.setFixedPosition.assert_not_called()
+
+
+class TestIsRepeated:
+    """protobuf 7 dropped FieldDescriptor.label; is_repeated replaces it (#81)."""
+
+    @pytest.mark.parametrize("repeated", [True, False])
+    def test_uses_is_repeated_without_label(self, repeated):
+        from types import SimpleNamespace
+
+        field = SimpleNamespace(is_repeated=repeated)
+        assert connection_mod._is_repeated(field) is repeated
