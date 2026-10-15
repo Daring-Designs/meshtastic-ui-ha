@@ -761,6 +761,11 @@ export class MeshMessagesTab extends LitElement {
           border-bottom-right-radius: 4px;
         }
         .chat-bubble.outgoing .sender { color: rgba(255,255,255,0.7); }
+        .chat-bubble .sender-link {
+          display: block; background: none; border: none; padding: 0;
+          font-family: inherit; text-align: left; cursor: pointer;
+        }
+        .chat-bubble .sender-link:hover { text-decoration: underline; }
         .chat-bubble.outgoing .time { color: rgba(255,255,255,0.6); }
 
         .encryption-badge {
@@ -1043,7 +1048,10 @@ export class MeshMessagesTab extends LitElement {
                 >
                   <div class="bubble-row">
                     <div class="chat-bubble ${isOutgoing ? "outgoing" : "incoming"}">
-                      <div class="sender">${senderName}</div>
+                      ${!isOutgoing && msg.from && this.nodes?.[msg.from] ? html`
+                        <button class="sender sender-link" title=${t("messages.view_sender")}
+                          @click=${() => this._fireNodeAction("view-node", msg.from)}>${senderName}</button>
+                      ` : html`<div class="sender">${senderName}</div>`}
                       ${quotedMsg ? html`
                         <div class="quoted-reply">
                           <span class="quoted-sender">${this._getNodeName(quotedMsg.from) || quotedMsg.from || t("common.unknown")}</span>
@@ -1233,6 +1241,12 @@ export class MeshMessagesTab extends LitElement {
     if (!nodeId || !this.nodes) return null;
     const node = this.nodes[nodeId];
     return node?.name || node?.short_name || null;
+  }
+
+  _fireNodeAction(action, nodeId) {
+    this.dispatchEvent(
+      new CustomEvent("node-action", { detail: { action, nodeId }, bubbles: true, composed: true })
+    );
   }
 }
 customElements.define("mesh-messages-tab", MeshMessagesTab);
@@ -1925,6 +1939,7 @@ export class MeshMapTab extends LitElement {
     this._snrLineLayer = null;
     this._tracerouteLayer = null;
     this._showNodes = true;
+    this._searchMiss = false;
     this._hideMqttNodes = lsGet("meshtastic_map_hide_mqtt") === "1";
     this._showWaypoints = true;
     this._showSnrLines = false;
@@ -2102,6 +2117,14 @@ export class MeshMapTab extends LitElement {
           display: flex; align-items: center; gap: 4px;
         }
         .locate-btn:hover { opacity: 0.85; }
+        .map-search {
+          padding: 5px 10px; border-radius: 6px; font-size: 11px; width: 140px;
+          border: 1px solid var(--divider-color);
+          background: var(--card-background-color); color: var(--primary-text-color);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1); outline: none;
+        }
+        .map-search:focus { border-color: var(--primary-color); }
+        .map-search.miss { border-color: var(--error-color, #db4437); }
 
         .wp-fab {
           position: absolute;
@@ -2225,6 +2248,16 @@ export class MeshMapTab extends LitElement {
           <button class="layer-btn ${this._hideMqttNodes ? "active" : ""}"
             @click=${this._toggleHideMqtt}
             title=${t("map.layers.hide_mqtt_title")}>${t("map.layers.hide_mqtt")}</button>
+          <input class="map-search ${this._searchMiss ? "miss" : ""}" type="search"
+            list="map-search-nodes"
+            placeholder=${t("map.search_placeholder")}
+            title=${this._searchMiss ? t("map.search_not_found") : t("map.search_placeholder")}
+            @input=${() => { if (this._searchMiss) { this._searchMiss = false; this.requestUpdate(); } }}
+            @change=${(e) => this._searchNode(e.target.value)}
+            @keydown=${(e) => { if (e.key === "Enter") this._searchNode(e.target.value); }}>
+          <datalist id="map-search-nodes">
+            ${this._searchableNodes().map(([id, n]) => html`<option value=${id}>${n.name || n.short_name || id}</option>`)}
+          </datalist>
           <button class="locate-btn" @click=${() => this._locateUser()} title=${t("map.locate_title")}>
             \u25CE ${t("map.locate")}
           </button>
@@ -2632,6 +2665,29 @@ export class MeshMapTab extends LitElement {
     if (this.focusNode?.id && this._focusedNodeSeq !== this.focusNode.ts) {
       this._focusOnNode(this.focusNode.id);
     }
+  }
+
+  /** [id, node] pairs that currently have a marker on the map. */
+  _searchableNodes() {
+    return Object.entries(this.nodes || {}).filter(([, n]) => {
+      if (this._hideMqttNodes && n.via_mqtt) return false;
+      const lat = parseFloat(n.latitude);
+      const lon = parseFloat(n.longitude);
+      return !isNaN(lat) && !isNaN(lon) && !(lat === 0 && lon === 0);
+    });
+  }
+
+  _searchNode(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return;
+    const positioned = this._searchableNodes();
+    const fields = ([id, n]) => [id, n.name, n.short_name].map((v) => (v || "").toLowerCase());
+    // Prefer an exact ID/name match over a partial one.
+    const match = positioned.find((e) => fields(e).includes(q))
+      || positioned.find((e) => fields(e).some((v) => v.includes(q)));
+    this._searchMiss = !match;
+    this.requestUpdate();
+    if (match) this._focusOnNode(match[0]);
   }
 
   _focusOnNode(nodeId) {
