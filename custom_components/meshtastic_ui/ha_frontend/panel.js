@@ -1166,6 +1166,7 @@ class MeshtasticUiPanel extends LitElement {
             @select-conversation=${this._onSelectConversation}
             @send-message=${this._onSendMessage}
             @clear-conversation=${this._onClearConversation}
+            @node-action=${this._onNodeAction}
           ></mesh-messages-tab>
         `;
       case "nodes":

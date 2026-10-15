@@ -830,6 +830,7 @@ export default {
       timeout: "Подтверждение не получено",
       sending: "Отправка…"
     },
+    view_sender: "Открыть сведения об узле",
     reply: "Ответить",
     cancel_reply: "Отменить ответ",
     empty: {
@@ -938,6 +939,8 @@ export default {
       hide_mqtt: "Скрыть MQTT",
       hide_mqtt_title: "Скрыть узлы, полученные только через MQTT"
     },
+    search_placeholder: "Найти узел…",
+    search_not_found: "Нет узла с координатами по запросу",
     locate: "Где я",
     locate_title: "Найти моё местоположение",
     style: {

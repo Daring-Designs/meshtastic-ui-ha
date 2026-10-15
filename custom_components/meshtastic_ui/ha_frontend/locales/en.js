@@ -824,6 +824,7 @@ export default {
       timeout: "No acknowledgement received",
       sending: "Sending…"
     },
+    view_sender: "View node details",
     reply: "Reply",
     cancel_reply: "Cancel reply",
     empty: {
@@ -932,6 +933,8 @@ export default {
       hide_mqtt: "Hide MQTT",
       hide_mqtt_title: "Hide nodes only heard via MQTT"
     },
+    search_placeholder: "Find node…",
+    search_not_found: "No node with a position matches",
     locate: "Locate",
     locate_title: "Find my location",
     style: {
