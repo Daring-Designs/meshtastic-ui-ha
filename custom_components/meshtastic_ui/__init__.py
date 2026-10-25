@@ -16,7 +16,10 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .connection import ConnectionState, ConnectionType, MeshtasticConnection
 from .const import (
+    CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
+    CONF_ENABLE_BLUETOOTH,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
     CONF_TCP_PORT,
@@ -230,7 +233,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up sensor platform.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _migrate_legacy_entity_ids(hass: HomeAssistant, entry_id: str) -> None:
@@ -330,6 +339,13 @@ def _create_connection(
             conn_type,
             serial_path=config_data[CONF_SERIAL_DEV_PATH],
         )
+    if conn_type == ConnectionType.BLE:
+        return MeshtasticConnection(
+            hass,
+            conn_type,
+            ble_address=config_data[CONF_BLE_ADDRESS],
+            ble_pin=config_data.get(CONF_BLE_PIN),
+        )
 
     raise ValueError(f"Unknown connection type: {conn_type}")
 
@@ -354,7 +370,7 @@ def _register_radio_callbacks(
     @callback
     def _on_packet(packet: dict) -> None:
         """Handle a received packet from the radio."""
-        decoded = packet.get("decoded", {})
+        decoded = packet.get("decoded") or {}
         portnum = decoded.get("portnum")
 
         _LOGGER.debug(
@@ -513,7 +529,7 @@ def _handle_text_message(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Parse a text message packet and route to channel or DM store."""
-    decoded = packet.get("decoded", {})
+    decoded = packet.get("decoded") or {}
     text = decoded.get("text", "")
     if not text:
         return
@@ -627,8 +643,8 @@ def _handle_text_message(
 @callback
 def _handle_delivery_ack(hass: HomeAssistant, entry_id: str, packet: dict) -> None:
     """Handle a routing/ack packet to update message delivery status."""
-    decoded = packet.get("decoded", {})
-    routing = decoded.get("routing", {})
+    decoded = packet.get("decoded") or {}
+    routing = decoded.get("routing") or {}
     request_id = packet.get("requestId") or decoded.get("requestId")
 
     if not request_id:
@@ -676,8 +692,8 @@ def _handle_traceroute(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a traceroute response packet."""
-    decoded = packet.get("decoded", {})
-    traceroute = decoded.get("traceroute", {})
+    decoded = packet.get("decoded") or {}
+    traceroute = decoded.get("traceroute") or {}
 
     from_id = normalize_node_id(packet.get("fromId", ""))
     to_id = normalize_node_id(packet.get("toId", ""))
@@ -728,8 +744,8 @@ def _handle_waypoint(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a waypoint packet from the mesh."""
-    decoded = packet.get("decoded", {})
-    waypoint = decoded.get("waypoint", {})
+    decoded = packet.get("decoded") or {}
+    waypoint = decoded.get("waypoint") or {}
     if not waypoint:
         return
 
@@ -775,8 +791,8 @@ def _handle_nodeinfo(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a NODEINFO_APP packet — extract user identity and update the store."""
-    decoded = packet.get("decoded", {})
-    user = decoded.get("user", {})
+    decoded = packet.get("decoded") or {}
+    user = decoded.get("user") or {}
     if not user:
         return
 

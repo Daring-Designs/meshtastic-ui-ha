@@ -94,6 +94,25 @@ function formatHardware(hw) {
   );
 }
 
+export function formatRadioDisplayName(longName, shortName, fallbackTitle, last4 = null) {
+  const base = (longName && longName.trim()) || "";
+  const short = (shortName && shortName.trim()) || "";
+  if (base) {
+    if (short && !base.includes(`(${short})`) && base !== short) {
+      return `${base} (${short})`;
+    }
+    return base;
+  }
+  const fallback = (fallbackTitle && fallbackTitle.trim()) || t("radio.default_name");
+  if (short && !fallback.includes(`(${short})`) && fallback !== short) {
+    return `${fallback} (${short})`;
+  }
+  if (!short && last4 && !fallback.includes(last4)) {
+    return `${fallback} (${last4})`;
+  }
+  return fallback;
+}
+
 function renderMetric(label, value, suffix = "") {
   const display = value != null && value !== "" ? `${value}${suffix}` : "\u2014";
   return html`
@@ -272,51 +291,32 @@ export class MeshRadioTab extends LitElement {
           flex: 0 1 auto;
           min-width: 0;
         }
-        .gateway-unread-dot {
-          position: absolute;
-          top: 4px;
-          right: 0;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
+        .gateway-unread-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          border-radius: 9px;
           background: #f44336;
-          box-shadow: 0 0 4px rgba(244,67,54,0.6);
-          pointer-events: none;
+          color: white;
+          font-size: 10px;
+          font-weight: 700;
+          line-height: 1;
+          box-sizing: border-box;
+          flex-shrink: 0;
+          margin-left: 6px;
         }
         .gateway-meta {
           display: flex; gap: 16px;
           font-size: 13px; color: var(--secondary-text-color);
-          margin-left: 16px;
+          margin-left: auto;
           flex-shrink: 1;
           min-width: 0;
           overflow: hidden;
         }
         .gateway-meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .reconnect-btn {
-          padding: 5px 12px;
-          border: 1px solid var(--divider-color);
-          border-radius: 8px;
-          background: var(--secondary-background-color);
-          color: var(--primary-text-color);
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-        .reconnect-btn:hover { opacity: 0.8; }
-        .reconnect-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .spinner {
-          display: inline-block; width: 12px; height: 12px;
-          border: 2px solid var(--divider-color);
-          border-top-color: var(--primary-color);
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
         .gateway-section { padding: 16px 20px; }
         .gateway-section + .gateway-section { border-top: 1px solid var(--divider-color); }
 
@@ -383,7 +383,7 @@ export class MeshRadioTab extends LitElement {
 
         @media (max-width: 600px) {
           .gateway-card-header { flex-wrap: wrap; }
-          .gateway-meta { flex-wrap: wrap; gap: 8px; }
+          .gateway-meta { flex-wrap: wrap; gap: 8px; margin-left: 0; width: 100%; }
           .channels-table th,
           .channels-table td { padding: 6px 8px; font-size: 12px; }
           .metrics-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
@@ -507,16 +507,7 @@ export class MeshRadioTab extends LitElement {
   }
 
   _handleReconnect() {
-    this.dispatchEvent(new CustomEvent("reconnect", { bubbles: true, composed: true }));
-  }
-
-  _onRadioSwitch(radioId) {
-    if (!radioId || radioId === this.selectedRadioId) return;
-    this.dispatchEvent(new CustomEvent("switch-radio", {
-      detail: { radio_id: radioId },
-      bubbles: true,
-      composed: true,
-    }));
+    this.dispatchEvent(new CustomEvent("reconnect", { bubbles: true, composed: true, detail: { radio_id: this.selectedRadioId } }));
   }
 
   _renderGatewayCard(gw) {
@@ -524,51 +515,23 @@ export class MeshRadioTab extends LitElement {
     const sensors = gw.sensors || {};
     const channels = gw.channels || [];
 
-    const multipleRadios = (this.radios || []).length > 1;
-    // Red dot when at least one *other* radio has unseen messages.
-    const otherUnread = Object.entries(this.radioUnread || {}).some(
-      ([rid, count]) => rid !== this.selectedRadioId && count > 0
+    const currentRadio = (this.radios || []).find((r) => r.radio_id === (this.selectedRadioId || gw.radio_id));
+    const displayName = formatRadioDisplayName(
+      gw.name || currentRadio?.name,
+      gw.short_name || currentRadio?.short_name,
+      currentRadio?.title || gw.title || null
     );
+
     return html`
       <div class="gateway-card">
         <div class="gateway-card-header">
           <div class="status-dot ${isConnected ? "connected" : "disconnected"}"></div>
-          ${multipleRadios ? html`
-            <div class="gateway-name-wrap">
-              <select class="gateway-name-switcher"
-                .value=${this.selectedRadioId || ""}
-                @change=${(e) => this._onRadioSwitch(e.target.value)}
-                title=${t("radio.switch_radio")}
-              >
-                ${this.radios.map((r) => {
-                  const unread = this.radioUnread?.[r.radio_id] || 0;
-                  const dot = (unread > 0 && r.radio_id !== this.selectedRadioId) ? " •" : "";
-                  return html`
-                    <option value=${r.radio_id} ?selected=${r.radio_id === this.selectedRadioId}>
-                      ${r.name || r.title || t("radio.default_name")}${r.last4 ? ` (${r.last4})` : ""}${dot}
-                    </option>
-                  `;
-                })}
-              </select>
-              ${otherUnread ? html`<span class="gateway-unread-dot" title=${t("radio.other_radio_unread")}></span>` : ""}
-            </div>
-          ` : html`<div class="gateway-name">${gw.name}</div>`}
+          <div class="gateway-name">${displayName}</div>
           <div class="gateway-meta">
             ${gw.model ? html`<span>${gw.model}</span>` : ""}
             ${gw.firmware ? html`<span>v${gw.firmware}</span>` : ""}
-            ${gw.serial ? html`<span>${gw.serial}</span>` : ""}
             ${sensors.uptime ? html`<span>${t("radio.uptime", { uptime: formatUptime(sensors.uptime) })}</span>` : ""}
           </div>
-          <button
-            class="reconnect-btn"
-            ?disabled=${this.reconnecting}
-            @click=${this._handleReconnect}
-            title=${t("radio.reconnect.title")}
-          >
-            ${this.reconnecting
-              ? html`<span class="spinner"></span> ${t("radio.reconnect.in_progress")}`
-              : html`↺ ${t("radio.reconnect.button")}`}
-          </button>
         </div>
 
         <div class="gateway-section">
@@ -632,6 +595,9 @@ export class MeshMessagesTab extends LitElement {
       deliveryStatuses: { type: Object },
       nodes: { type: Object },
       unreadCounts: { type: Object },
+      radios: { type: Array },
+      selectedRadioId: { type: String },
+      radioUnread: { type: Object },
       _replyTo: { type: Object },
       _pendingClear: { type: Object, state: true },
     };
@@ -647,6 +613,9 @@ export class MeshMessagesTab extends LitElement {
     this.deliveryStatuses = {};
     this.nodes = {};
     this.unreadCounts = {};
+    this.radios = [];
+    this.selectedRadioId = null;
+    this.radioUnread = {};
     this._messageInput = "";
     this._replyTo = null;
     this._touchMoved = false;
@@ -663,7 +632,7 @@ export class MeshMessagesTab extends LitElement {
 
         .messages-layout {
           display: flex; gap: 16px;
-          height: calc(100vh - 80px);
+          height: calc(100vh - 125px);
         }
         .conversation-list {
           width: 240px; flex-shrink: 0;
@@ -1971,7 +1940,7 @@ export class MeshMapTab extends LitElement {
         :host { display: block; }
         .map-container {
           position: relative;
-          height: calc(100vh - 130px);
+          height: calc(100vh - 165px);
           border-radius: 12px; overflow: hidden;
           border: 1px solid var(--divider-color);
         }
@@ -2158,6 +2127,17 @@ export class MeshMapTab extends LitElement {
 
   updated(changedProps) {
     if (!this._mapInstance) return;
+    if (changedProps.has("localNodeId") && changedProps.get("localNodeId") !== undefined) {
+      this._hasFittedBounds = false;
+      const localNode = this.nodes?.[this.localNodeId];
+      if (localNode && !isNaN(parseFloat(localNode.latitude)) && !isNaN(parseFloat(localNode.longitude))) {
+        const lat = parseFloat(localNode.latitude);
+        const lon = parseFloat(localNode.longitude);
+        if (lat !== 0 || lon !== 0) {
+          this._mapInstance.panTo([lat, lon]);
+        }
+      }
+    }
     if (changedProps.has("nodes") || changedProps.has("localNodeId")) {
       this._updateNodeLayer();
       this._updateSnrLines();

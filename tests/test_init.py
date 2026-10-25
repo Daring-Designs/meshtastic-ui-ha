@@ -10,16 +10,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.meshtastic_ui import (
+    _create_connection,
     _extract_node_data,
     _handle_delivery_ack,
     _handle_text_message,
     _handle_traceroute,
     _handle_waypoint,
     _num_to_id,
+    async_setup_entry,
+    async_unload_entry,
 )
+from custom_components.meshtastic_ui.connection import ConnectionType
 from custom_components.meshtastic_ui.const import (
+    CONF_BLE_ADDRESS,
+    CONF_CONNECTION_TYPE,
     DOMAIN,
     SIGNAL_DELIVERY_STATUS,
     SIGNAL_NEW_MESSAGE,
@@ -333,3 +340,46 @@ class TestHandleWaypoint:
         packet = {"decoded": {"portnum": "WAYPOINT_APP", "waypoint": {}}, "fromId": "!aa"}
         _handle_waypoint(hass, "_legacy", store, packet)
         assert store.get_waypoints() == {}
+
+
+class TestBleSetup:
+    """Tests for BLE connection creation and entry setup."""
+
+    def test_create_connection_ble(self, hass: HomeAssistant):
+        """Test _create_connection with BLE config creates MeshtasticConnection with BLE type."""
+        conn = _create_connection(
+            hass,
+            {CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        assert conn.connection_type == ConnectionType.BLE
+        assert conn.ble_address == "AA:BB:CC:DD:EE:FF"
+
+    async def test_async_setup_entry_ble(self, hass: HomeAssistant):
+        """Test async_setup_entry successfully sets up BLE radio."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+            unique_id="AA:BB:CC:DD:EE:FF",
+            title="Meshtastic (AA:BB:CC:DD:EE:FF)",
+        )
+        entry.add_to_hass(hass)
+
+        with (
+            patch("custom_components.meshtastic_ui.connection.MeshtasticConnection.async_connect", new_callable=AsyncMock),
+            patch("custom_components.meshtastic_ui._sync_nodes_from_radio"),
+            patch("custom_components.meshtastic_ui.async_register_panel", new_callable=AsyncMock),
+            patch("custom_components.meshtastic_ui.async_unregister_panel"),
+            patch("custom_components.meshtastic_ui.async_register_websocket_api"),
+            patch("homeassistant.config_entries.ConfigEntries.async_forward_entry_setups", new_callable=AsyncMock, return_value=True),
+            patch("homeassistant.config_entries.ConfigEntries.async_unload_platforms", new_callable=AsyncMock, return_value=True),
+        ):
+            try:
+                success = await async_setup_entry(hass, entry)
+                assert success is True
+                assert entry.entry_id in hass.data[DOMAIN]["entries"]
+                conn = hass.data[DOMAIN]["entries"][entry.entry_id]["connection"]
+                assert conn.connection_type == ConnectionType.BLE
+                assert conn.ble_address == "AA:BB:CC:DD:EE:FF"
+            finally:
+                await async_unload_entry(hass, entry)
+

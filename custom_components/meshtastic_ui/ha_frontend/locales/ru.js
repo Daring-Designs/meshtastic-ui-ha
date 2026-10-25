@@ -779,6 +779,14 @@ export default {
       in_progress: "Переподключение…",
       button: "Переподключить"
     },
+    connection: {
+      connect: "Подключить",
+      connecting: "Подключение…",
+      disconnect: "Отключить",
+      disconnecting: "Отключение…",
+      connect_title: "Подключить радио",
+      disconnect_title: "Отключить радио"
+    },
     metrics: {
       title: "Метрики",
       battery: "Батарея",

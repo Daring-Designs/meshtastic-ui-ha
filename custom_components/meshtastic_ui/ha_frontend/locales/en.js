@@ -777,6 +777,14 @@ export default {
       in_progress: "Reconnecting…",
       button: "Reconnect"
     },
+    connection: {
+      connect: "Connect",
+      connecting: "Connecting…",
+      disconnect: "Disconnect",
+      disconnecting: "Disconnecting…",
+      connect_title: "Connect to radio",
+      disconnect_title: "Disconnect radio"
+    },
     metrics: {
       title: "Metrics",
       battery: "Battery",

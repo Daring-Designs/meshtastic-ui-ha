@@ -6,8 +6,8 @@ import {
 import { setLanguage, t } from "./i18n.js";
 
 /* ── Import tab components ── */
-import "./views.js";
-import "./settings.js";
+import { formatRadioDisplayName } from "./views.js?v=1.1.4";
+import "./settings.js?v=1.1.4";
 
 const TS_POLL_MS = 10000;  // poll backend for time-series every 10s
 
@@ -95,9 +95,11 @@ class MeshtasticUiPanel extends LitElement {
       _mapFocusNode: { type: Object },
       _showReconnectBanner: { type: Boolean },
       _reconnecting: { type: Boolean },
+      _disconnecting: { type: Boolean },
       _radios: { type: Array },
       _selectedRadioId: { type: String },
       _radioUnread: { type: Object },
+      _unreadByRadio: { type: Object },
     };
   }
 
@@ -122,7 +124,9 @@ class MeshtasticUiPanel extends LitElement {
     this._tracerouteDialog = null;
     this._tracerouteTimeoutId = null;
     this._channelNames = {};
-    this._unreadCounts = JSON.parse(lsGet("meshtastic_unread") || "{}");
+    this._unreadByRadio = this._loadUnreadByRadio();
+    this._unreadCounts = {};
+    this._radioUnread = {};
     this._notificationPrefs = { enabled: false, service: "persistent_notification.create", filter: "all" };
     this._showNotificationModal = false;
     this._nodeDialogId = null;
@@ -130,9 +134,10 @@ class MeshtasticUiPanel extends LitElement {
     this._mapFocusNode = null;
     this._showReconnectBanner = false;
     this._reconnecting = false;
+    this._disconnecting = false;
     this._radios = [];
     this._selectedRadioId = lsGet("meshtastic_selected_radio") || null;
-    this._radioUnread = {};
+    this._updateRadioUnreadSummary();
     this._wsFailCount = 0;
     this._timeSeries = null;
     this._packetTypes = null;
@@ -146,6 +151,50 @@ class MeshtasticUiPanel extends LitElement {
     this._subscribing = false;
     this._subscribeGen = 0;
     this._prevConnection = null;
+  }
+
+  _loadUnreadByRadio() {
+    try {
+      const raw = lsGet("meshtastic_unread_by_radio");
+      if (raw) return JSON.parse(raw);
+      // Migrate from old single-dict format if present
+      const old = lsGet("meshtastic_unread");
+      if (old) {
+        const parsed = JSON.parse(old);
+        if (parsed && typeof parsed === "object") {
+          const firstVal = Object.values(parsed)[0];
+          if (typeof firstVal === "object" && firstVal !== null) return parsed;
+          const sel = lsGet("meshtastic_selected_radio");
+          if (sel) return { [sel]: parsed };
+        }
+      }
+    } catch {}
+    return {};
+  }
+
+  _getActiveUnreadCounts() {
+    if (!this._selectedRadioId) return {};
+    return this._unreadByRadio[this._selectedRadioId] || {};
+  }
+
+  _getOtherRadiosUnreadCount() {
+    let total = 0;
+    for (const [rid, counts] of Object.entries(this._unreadByRadio || {})) {
+      if (rid !== this._selectedRadioId) {
+        total += Object.values(counts || {}).reduce((a, b) => a + b, 0);
+      }
+    }
+    return total;
+  }
+
+  _updateRadioUnreadSummary() {
+    const summary = {};
+    for (const [rid, counts] of Object.entries(this._unreadByRadio || {})) {
+      const total = Object.values(counts || {}).reduce((a, b) => a + b, 0);
+      if (total > 0) summary[rid] = total;
+    }
+    this._radioUnread = summary;
+    this._unreadCounts = this._getActiveUnreadCounts();
   }
 
   connectedCallback() {
@@ -285,23 +334,23 @@ class MeshtasticUiPanel extends LitElement {
         lsSet("meshtastic_selected_radio", this._selectedRadioId);
       }
     }
+    this._updateRadioUnreadSummary();
   }
 
   async _switchRadio(radioId) {
     if (!radioId || radioId === this._selectedRadioId) return;
     this._selectedRadioId = radioId;
     lsSet("meshtastic_selected_radio", radioId);
-    // Clear the red-dot for the radio we just switched to.
-    if (this._radioUnread[radioId]) {
-      const { [radioId]: _, ...rest } = this._radioUnread;
-      this._radioUnread = rest;
-    }
+    this._updateRadioUnreadSummary();
+
     // Drop in-memory state so we don't render stale data while reloading.
     this._messages = {};
     this._channels = [];
     this._dms = [];
     this._channelNames = {};
     this._nodes = {};
+    this._favoriteNodes = [];
+    this._ignoredNodes = [];
     this._waypoints = {};
     this._traceroutes = {};
     this._gateways = [];
@@ -312,23 +361,52 @@ class MeshtasticUiPanel extends LitElement {
     await this._unsubscribe();
     this._resetSubscriptions();
     await this._loadData();
+    this.requestUpdate();
   }
 
-  async _handleReconnectClick() {
-    if (this._reconnecting) return;
-    this._reconnecting = true;
+  async _handleConnectionToggle(targetRadioId = null) {
+    if (this._reconnecting || this._disconnecting) return;
+
+    const radioId = targetRadioId || this._selectedRadioId;
+    const radios = this._radios || [];
+    const activeRadio = radios.find((r) => r.radio_id === radioId) || radios[0];
+    const isConnected = activeRadio
+      ? (activeRadio.state === "connected" || (!activeRadio.state && this._gateways?.some((g) => g.connected)))
+      : false;
+
     try {
-      // Try a backend force-reconnect first — works when the radio dropped
-      // but the HA WebSocket is still alive. Banner clears on the next
-      // successful WS call.
-      await this.hass.callWS({ type: "meshtastic_ui/reconnect" });
+      if (isConnected) {
+        this._disconnecting = true;
+        this.requestUpdate();
+        const payload = { type: "meshtastic_ui/disconnect" };
+        if (radioId) payload.radio_id = radioId;
+        await this.hass.callWS(payload);
+      } else {
+        this._reconnecting = true;
+        this.requestUpdate();
+        const payload = { type: "meshtastic_ui/reconnect" };
+        if (radioId) payload.radio_id = radioId;
+        await this.hass.callWS(payload);
+        const connType = (activeRadio?.connection_type || "").toLowerCase();
+        if (connType === "ble") {
+          await new Promise((r) => setTimeout(r, 6000));
+        } else {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
     } catch (err) {
-      // HA WebSocket itself is unreachable — page reload is the only recovery.
-      location.reload();
-      return;
+      console.error("Connection toggle failed:", err);
     } finally {
+      this._disconnecting = false;
       this._reconnecting = false;
+      await this._loadRadios();
+      await this._loadGateways();
+      this.requestUpdate();
     }
+  }
+
+  async _handleReconnectClick(targetRadioId = null) {
+    return this._handleConnectionToggle(targetRadioId);
   }
 
   async _loadGateways() {
@@ -491,47 +569,42 @@ class MeshtasticUiPanel extends LitElement {
     const key = data.type === "dm" ? data.partner : data.channel;
     if (!key) return;
 
-    // Route by entry_id: events from radios other than the active one don't
-    // touch the active radio's chat — they only bump that radio's unread
-    // counter, surfaced as a red dot on the gateway switcher (#multi-radio).
-    const eventEntryId = data.entry_id;
-    if (
-      eventEntryId &&
-      this._selectedRadioId &&
-      eventEntryId !== this._selectedRadioId
-    ) {
-      if (!data._outgoing) {
-        this._radioUnread = {
-          ...this._radioUnread,
-          [eventEntryId]: (this._radioUnread[eventEntryId] || 0) + 1,
-        };
+    const eventEntryId = data.entry_id || this._selectedRadioId;
+
+    // Route message into active chat if it matches selected radio
+    if (eventEntryId === this._selectedRadioId) {
+      if (!this._messages[key]) {
+        this._messages[key] = [];
+        if (data.type === "dm" && !this._dms.includes(key)) {
+          this._dms = [...this._dms, key];
+        } else if (data.type === "channel" && !this._channels.includes(key)) {
+          this._channels = [...this._channels, key];
+        }
       }
-      return;
+
+      this._messages = {
+        ...this._messages,
+        [key]: [...(this._messages[key] || []), data],
+      };
     }
 
-    if (!this._messages[key]) {
-      this._messages[key] = [];
-      if (data.type === "dm" && !this._dms.includes(key)) {
-        this._dms = [...this._dms, key];
-      } else if (data.type === "channel" && !this._channels.includes(key)) {
-        this._channels = [...this._channels, key];
-      }
-    }
+    // Increment unread count unless user is viewing this exact conversation on this radio
+    if (!data._outgoing && eventEntryId) {
+      const isViewing =
+        eventEntryId === this._selectedRadioId &&
+        this._activeTab === "messages" &&
+        this._selectedConversation === key;
 
-    this._messages = {
-      ...this._messages,
-      [key]: [...(this._messages[key] || []), data],
-    };
-
-    // Increment unread unless user is viewing this exact conversation
-    if (!data._outgoing) {
-      const isViewing = this._activeTab === "messages" && this._selectedConversation === key;
       if (!isViewing) {
-        this._unreadCounts = {
-          ...this._unreadCounts,
-          [key]: (this._unreadCounts[key] || 0) + 1,
+        const currentForRadio = { ...(this._unreadByRadio[eventEntryId] || {}) };
+        currentForRadio[key] = (currentForRadio[key] || 0) + 1;
+
+        this._unreadByRadio = {
+          ...this._unreadByRadio,
+          [eventEntryId]: currentForRadio,
         };
-        lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
+        lsSet("meshtastic_unread_by_radio", JSON.stringify(this._unreadByRadio));
+        this._updateRadioUnreadSummary();
       }
     }
   }
@@ -610,8 +683,10 @@ class MeshtasticUiPanel extends LitElement {
     }
   }
 
-  async _onReconnect() {
-    await this._handleReconnectClick();
+  async _onReconnect(e) {
+    const radioId = e?.detail?.radio_id || this._selectedRadioId;
+    if (radioId) this._selectedRadioId = radioId;
+    await this._handleReconnectClick(radioId);
   }
 
   async _onClearConversation(e) {
@@ -625,10 +700,15 @@ class MeshtasticUiPanel extends LitElement {
     this._messages = rest;
     this._channels = this._channels.filter((c) => c !== conv);
     this._dms = this._dms.filter((d) => d !== conv);
-    if (this._unreadCounts[conv]) {
-      const { [conv]: _u, ...restUnread } = this._unreadCounts;
-      this._unreadCounts = restUnread;
-      lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
+    if (this._selectedRadioId && this._unreadByRadio[this._selectedRadioId]?.[conv]) {
+      const currentForRadio = { ...(this._unreadByRadio[this._selectedRadioId] || {}) };
+      delete currentForRadio[conv];
+      this._unreadByRadio = {
+        ...this._unreadByRadio,
+        [this._selectedRadioId]: currentForRadio,
+      };
+      lsSet("meshtastic_unread_by_radio", JSON.stringify(this._unreadByRadio));
+      this._updateRadioUnreadSummary();
     }
     if (this._selectedConversation === conv) {
       this._selectedConversation = "";
@@ -642,8 +722,14 @@ class MeshtasticUiPanel extends LitElement {
       this._messages = {};
       this._channels = [];
       this._dms = [];
-      this._unreadCounts = {};
-      lsSet("meshtastic_unread", "{}");
+      if (this._selectedRadioId) {
+        this._unreadByRadio = {
+          ...this._unreadByRadio,
+          [this._selectedRadioId]: {},
+        };
+        lsSet("meshtastic_unread_by_radio", JSON.stringify(this._unreadByRadio));
+        this._updateRadioUnreadSummary();
+      }
       await this._loadMessages();
     }
     if (kind === "clear_nodes" || kind === "clear_all") {
@@ -662,12 +748,17 @@ class MeshtasticUiPanel extends LitElement {
   }
     
   _onSelectConversation(e) {
-    const conv = e.detail.conversation;
+    const conv = e.detail?.conversation;
     this._selectedConversation = conv;
-    if (this._unreadCounts[conv]) {
-      const { [conv]: _, ...rest } = this._unreadCounts;
-      this._unreadCounts = rest;
-      lsSet("meshtastic_unread", JSON.stringify(this._unreadCounts));
+    if (this._selectedRadioId && this._unreadByRadio[this._selectedRadioId]?.[conv]) {
+      const currentForRadio = { ...(this._unreadByRadio[this._selectedRadioId] || {}) };
+      delete currentForRadio[conv];
+      this._unreadByRadio = {
+        ...this._unreadByRadio,
+        [this._selectedRadioId]: currentForRadio,
+      };
+      lsSet("meshtastic_unread_by_radio", JSON.stringify(this._unreadByRadio));
+      this._updateRadioUnreadSummary();
     }
   }
 
@@ -805,10 +896,12 @@ class MeshtasticUiPanel extends LitElement {
   static get styles() {
     return css`
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
         background: var(--primary-background-color);
         color: var(--primary-text-color);
+        box-sizing: border-box;
       }
 
       .tabs {
@@ -817,6 +910,7 @@ class MeshtasticUiPanel extends LitElement {
         border-bottom: 1px solid var(--divider-color);
         background: var(--card-background-color);
         padding: 0 16px;
+        flex-shrink: 0;
       }
 
       .menu-btn {
@@ -865,11 +959,174 @@ class MeshtasticUiPanel extends LitElement {
         border-bottom-color: var(--primary-color);
       }
 
+      .radio-sub-bar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 6px 16px;
+        background: var(--card-background-color);
+        border-bottom: 1px solid var(--divider-color);
+        flex-shrink: 0;
+        box-sizing: border-box;
+      }
+
+      .sub-bar-radio-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 12px;
+        background: var(--secondary-background-color);
+        border: 1px solid var(--divider-color);
+        border-radius: 20px;
+        box-sizing: border-box;
+        max-width: 100%;
+      }
+
+      .sub-bar-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #f44336;
+      }
+      .sub-bar-dot.connected {
+        background: #4caf50;
+        box-shadow: 0 0 6px rgba(76, 175, 80, 0.4);
+      }
+      .sub-bar-dot.disconnected {
+        background: #f44336;
+        box-shadow: 0 0 6px rgba(244, 67, 54, 0.4);
+      }
+
+      .sub-bar-icon {
+        --mdc-icon-size: 16px;
+        color: var(--secondary-text-color);
+        flex-shrink: 0;
+      }
+
+      .sub-bar-select {
+        background: transparent;
+        border: none;
+        color: var(--primary-text-color);
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        outline: none;
+        padding-right: 4px;
+        max-width: 340px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .sub-bar-select option {
+        background: var(--card-background-color);
+        color: var(--primary-text-color);
+      }
+
+      .sub-bar-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary-text-color);
+        max-width: 340px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      .sub-bar-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: #f44336;
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        box-sizing: border-box;
+        flex-shrink: 0;
+      }
+
+      .sub-bar-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .sub-bar-address {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        border: 1px solid var(--divider-color);
+        font-family: var(--code-font-family, monospace);
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .sub-bar-address ha-icon {
+        --mdc-icon-size: 16px;
+        color: var(--secondary-text-color);
+      }
+
+      .sub-bar-conn-btn,
+      .sub-bar-reconnect {
+        padding: 4px 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        color: var(--primary-text-color);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: opacity 0.15s, background-color 0.15s, color 0.15s, border-color 0.15s;
+      }
+      .sub-bar-conn-btn:hover,
+      .sub-bar-reconnect:hover { opacity: 0.85; }
+      .sub-bar-conn-btn:disabled,
+      .sub-bar-reconnect:disabled { opacity: 0.4; cursor: not-allowed; }
+      .sub-bar-conn-btn.disconnect:hover {
+        background: rgba(244, 67, 54, 0.08);
+        color: #f44336;
+        border-color: rgba(244, 67, 54, 0.4);
+      }
+      .sub-bar-conn-btn.connect {
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+        border-color: var(--primary-color);
+      }
+      .sub-bar-conn-btn.connect:hover {
+        filter: brightness(1.1);
+        opacity: 1;
+      }
+
+      .spinner {
+        display: inline-block; width: 12px; height: 12px;
+        border: 2px solid var(--divider-color);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
       .content {
         position: relative;
         z-index: 0;
         padding: 16px 16px 0;
-        height: calc(100% - 49px);
+        flex: 1;
         overflow-y: auto;
         box-sizing: border-box;
       }
@@ -1087,11 +1344,151 @@ class MeshtasticUiPanel extends LitElement {
         .content { padding: 8px 8px 0; }
         .bell-icon { padding: 8px; flex-shrink: 0; }
         .menu-btn { flex-shrink: 0; }
+        .radio-sub-bar {
+          padding: 6px 8px;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .sub-bar-radio-pill {
+          padding: 4px 10px;
+          gap: 6px;
+          max-width: 100%;
+        }
+        .sub-bar-select,
+        .sub-bar-label {
+          max-width: calc(100vw - 80px);
+          font-size: 13px;
+        }
+        .sub-bar-actions {
+          gap: 6px;
+          margin-left: auto;
+        }
+        .sub-bar-address {
+          padding: 3px 6px;
+          font-size: 11px;
+        }
+        .sub-bar-conn-btn,
+        .sub-bar-reconnect {
+          padding: 3px 8px;
+          font-size: 11px;
+        }
       }
     `;
   }
 
   /* ── Render ── */
+
+  _renderRadioSubBar() {
+    const radios = this._radios || [];
+    if (radios.length === 0) return html``;
+
+    const activeRadio = radios.find((r) => r.radio_id === this._selectedRadioId) || radios[0];
+    const isConnected = activeRadio
+      ? (activeRadio.state === "connected" || (!activeRadio.state && this._gateways?.some((g) => g.connected)))
+      : true;
+
+    const gw = (this._gateways || []).find((g) => g.radio_id === (this._selectedRadioId || activeRadio?.radio_id))
+      || (this._gateways && this._gateways[0]);
+    const address = activeRadio?.address || gw?.address;
+    const connType = (activeRadio?.connection_type || gw?.connection_type || "").toLowerCase();
+
+    let connIcon = "mdi:radio-handheld";
+    let connTitle = "Device Address";
+    if (connType === "ble" || (address && /^[0-9a-fA-F:]{17}$/.test(address))) {
+      connIcon = "mdi:bluetooth";
+      connTitle = "Bluetooth MAC";
+    } else if (connType === "tcp" || (address && /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/.test(address))) {
+      connIcon = "mdi:ip-network";
+      connTitle = "IP Address";
+    } else if (connType === "serial" || (address && (address.startsWith("/") || address.startsWith("COM")))) {
+      connIcon = "mdi:usb";
+      connTitle = "Serial Port";
+    }
+
+    const otherUnreadCount = this._getOtherRadiosUnreadCount();
+
+    const isBusy = this._reconnecting || this._disconnecting;
+    const btnLabel = this._disconnecting
+      ? html`<span class="spinner"></span> ${t("radio.connection.disconnecting")}`
+      : this._reconnecting
+      ? html`<span class="spinner"></span> ${t("radio.connection.connecting")}`
+      : isConnected
+      ? html`✕ ${t("radio.connection.disconnect")}`
+      : html`▶ ${t("radio.connection.connect")}`;
+
+    const btnTitle = isConnected
+      ? t("radio.connection.disconnect_title")
+      : t("radio.connection.connect_title");
+
+    const btnClass = `sub-bar-conn-btn ${isConnected ? "disconnect" : "connect"}`;
+
+    const actionsHtml = html`
+      <div class="sub-bar-actions">
+        ${address ? html`
+          <div class="sub-bar-address" title="${connTitle}: ${address}">
+            <ha-icon icon="${connIcon}"></ha-icon>
+            <span>${address}</span>
+          </div>
+        ` : ""}
+        <button
+          class=${btnClass}
+          ?disabled=${isBusy}
+          @click=${() => this._handleConnectionToggle()}
+          title=${btnTitle}
+        >
+          ${btnLabel}
+        </button>
+      </div>
+    `;
+
+    if (radios.length > 1) {
+      return html`
+        <div class="radio-sub-bar">
+          <div class="sub-bar-radio-pill" title=${t("radio.switch_radio")}>
+            <span class="sub-bar-dot ${isConnected ? "connected" : "disconnected"}"></span>
+            <ha-icon icon="${connIcon}" class="sub-bar-icon"></ha-icon>
+            <select
+              class="sub-bar-select"
+              .value=${this._selectedRadioId || ""}
+              @change=${(e) => this._switchRadio(e.target.value)}
+              aria-label=${t("radio.switch_radio")}
+            >
+              ${radios.map((r) => {
+                const unread = this._radioUnread?.[r.radio_id] || 0;
+                const unreadSuffix = (unread > 0 && r.radio_id !== this._selectedRadioId) ? ` (${unread})` : "";
+                const label = formatRadioDisplayName(r.name, r.short_name, r.title, r.last4);
+                return html`
+                  <option value=${r.radio_id} ?selected=${r.radio_id === this._selectedRadioId}>
+                    ${label}${unreadSuffix}
+                  </option>
+                `;
+              })}
+            </select>
+            ${otherUnreadCount > 0 ? html`
+              <span class="sub-bar-badge" title="${t("radio.other_radio_unread")}: ${otherUnreadCount}">
+                ${otherUnreadCount > 99 ? "99+" : otherUnreadCount}
+              </span>
+            ` : ""}
+          </div>
+          <div style="flex:1;"></div>
+          ${actionsHtml}
+        </div>
+      `;
+    }
+
+    const label = formatRadioDisplayName(activeRadio.name, activeRadio.short_name, activeRadio.title, activeRadio.last4);
+    return html`
+      <div class="radio-sub-bar">
+        <div class="sub-bar-radio-pill single-radio" title="${address || ""}">
+          <span class="sub-bar-dot ${isConnected ? "connected" : "disconnected"}"></span>
+          <ha-icon icon="${connIcon}" class="sub-bar-icon"></ha-icon>
+          <span class="sub-bar-label">${label}</span>
+        </div>
+        <div style="flex:1;"></div>
+        ${actionsHtml}
+      </div>
+    `;
+  }
 
   render() {
     return html`
@@ -1102,8 +1499,11 @@ class MeshtasticUiPanel extends LitElement {
           </button>
         ` : ""}
         ${TABS.map((tab) => {
-          const unread = tab === "messages"
-            ? Object.values(this._unreadCounts).reduce((a, b) => a + b, 0) : 0;
+          let unread = 0;
+          if (tab === "messages") {
+            const activeUnread = this._getActiveUnreadCounts();
+            unread = Object.values(activeUnread).reduce((a, b) => a + b, 0);
+          }
           return html`
             <div
               class="tab ${this._activeTab === tab ? "active" : ""}"
@@ -1126,6 +1526,7 @@ class MeshtasticUiPanel extends LitElement {
           ${this._reconnecting ? t("panel.reconnect.reconnecting") : t("panel.reconnect.connection_lost")}
         </div>
       ` : ""}
+      ${this._renderRadioSubBar()}
       <div class="content">
         ${this._renderActiveTab()}
       </div>
@@ -1147,10 +1548,8 @@ class MeshtasticUiPanel extends LitElement {
           .reconnecting=${this._reconnecting}
           .radios=${this._radios}
           .selectedRadioId=${this._selectedRadioId}
-          .radioUnread=${this._radioUnread}
           @chart-window-change=${this._onChartWindowChange}
           @reconnect=${this._onReconnect}
-          @switch-radio=${(e) => this._switchRadio(e.detail.radio_id)}
         ></mesh-radio-tab>`;
       case "messages":
         return html`
@@ -1162,7 +1561,7 @@ class MeshtasticUiPanel extends LitElement {
             .selectedConversation=${this._selectedConversation}
             .deliveryStatuses=${this._deliveryStatuses}
             .nodes=${this._nodes}
-            .unreadCounts=${this._unreadCounts}
+            .unreadCounts=${this._getActiveUnreadCounts()}
             @select-conversation=${this._onSelectConversation}
             @send-message=${this._onSendMessage}
             @clear-conversation=${this._onClearConversation}

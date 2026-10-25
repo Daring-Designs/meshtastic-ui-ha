@@ -6,3 +6,4 @@ node_modules
 .coverage
 *.egg-info/
 CLAUDE.local.md
+.agents/
