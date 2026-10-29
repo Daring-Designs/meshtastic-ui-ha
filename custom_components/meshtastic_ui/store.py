@@ -13,6 +13,7 @@ from .const import (
     ACTIVE_NODE_WINDOW_SECONDS,
     MAX_CHANNEL_MESSAGES,
     MAX_DM_MESSAGES,
+    MAX_SEEN_MESSAGES,
     NODE_RETENTION_DAYS,
     SAVE_DELAY,
     STORAGE_KEY,
@@ -78,6 +79,9 @@ class MeshtasticUiStore:
         self._ignored_nodes: set[str] = set()
         self._waypoints: dict[int, dict[str, Any]] = {}  # wp_id -> waypoint data
         self._traceroutes: dict[str, dict[str, Any]] = {}  # node_id -> last traceroute
+        # "!sender:packet_id" keys of received messages, oldest first.
+        self._seen_messages: deque[str] = deque(maxlen=MAX_SEEN_MESSAGES)
+        self._seen_message_set: set[str] = set()
         self._notification_prefs: dict[str, Any] = {
             "enabled": False,
             "service": "persistent_notification.create",
@@ -153,6 +157,10 @@ class MeshtasticUiStore:
         # Restore traceroutes.
         self._traceroutes = data.get("traceroutes", {})
 
+        # Restore the replay-protection history.
+        self._seen_messages.extend(data.get("seen_messages", []))
+        self._seen_message_set = set(self._seen_messages)
+
         # Restore notification preferences.
         saved_prefs = data.get("notification_prefs")
         if saved_prefs:
@@ -179,7 +187,27 @@ class MeshtasticUiStore:
             "waypoints": {str(k): v for k, v in self._waypoints.items()},
             "traceroutes": self._traceroutes,
             "notification_prefs": self._notification_prefs,
+            "seen_messages": list(self._seen_messages),
         }
+
+    def mark_message_seen(self, sender_id: str, packet_id: int) -> bool:
+        """Record a received message. Return False if it was already seen.
+
+        The radio only remembers a couple of hundred recent packets, so a
+        recorded message replayed later passes the radio's duplicate check
+        and, for a PKI DM, still decrypts as genuine. The packet ID is bound
+        into the PKI nonce, so a replay can't change it without failing
+        decryption.
+        """
+        key = f"{normalize_node_id(sender_id)}:{packet_id}"
+        if key in self._seen_message_set:
+            return False
+        if len(self._seen_messages) == self._seen_messages.maxlen:
+            self._seen_message_set.discard(self._seen_messages[0])
+        self._seen_messages.append(key)
+        self._seen_message_set.add(key)
+        self._schedule_save()
+        return True
 
     def add_channel_message(self, entity_id: str, message: dict[str, Any]) -> None:
         """Add a message to a channel."""

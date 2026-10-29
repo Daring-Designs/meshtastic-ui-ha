@@ -28,7 +28,8 @@ RADIO_TRIGGERS = {
 # Triggers on a monitored node's device.
 NODE_TRIGGERS = {
     "message_from_node": {},
-    "direct_message_from_node": {"type": "dm"},
+    # Only authenticated DMs: PKI-encrypted and heard over LoRa, not MQTT.
+    "direct_message_from_node": {"type": "dm", "authenticated": True},
 }
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(

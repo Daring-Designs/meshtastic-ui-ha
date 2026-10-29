@@ -153,34 +153,37 @@ Every received text message fires a `meshtastic_ui_message_received` event. Use 
 | `channel` | Channel index |
 | `to` | Destination node ID (`^all` for channel messages) |
 | `pki_encrypted` | `true` for a direct message end-to-end encrypted to your radio |
+| `authenticated` | `true` for a PKI-encrypted direct message heard over LoRa (not MQTT). See the security note below |
 | `snr`, `rssi`, `hops_away`, `via_mqtt`, `message_id`, `reply_id`, `config_entry_id` | Packet details |
 
-Messages from ignored nodes don't fire the event. Every outgoing message also fires `meshtastic_ui_delivery_status` with `status` (`delivered`, `failed` or `timeout`), `packet_id`, `to`, `channel`, `message` and `error`.
+Messages from ignored nodes don't fire the event, and neither does a message that was already received (same sender and packet ID), so a recorded message replayed over the air is dropped. Every outgoing message also fires `meshtastic_ui_delivery_status` with `status` (`delivered`, `failed` or `timeout`), `packet_id`, `to`, `channel`, `message` and `error`.
 
-**Security:** anyone in range who knows your channel key can send a channel message, and on a channel the sender's node ID isn't authenticated. Before an automation controls something, check that `type` is `dm`, `from` is the node you expect, and `pki_encrypted` is `true`. Only the holder of that node's private key can produce a PKI-encrypted direct message.
+The **Direct message received from this node** device trigger only fires for authenticated messages.
+
+> [!WARNING]
+> **Don't use mesh messages to control locks, doors, alarms or anything else that matters.** Meshtastic was not built to authenticate commands:
+>
+> - **Channel messages prove nothing about the sender.** Anyone in range who knows the channel key can send as any node, and the default keys are public.
+> - **`authenticated` depends on your radio's firmware.** Before 2.7.15, anyone with the channel key could forge a direct message that looked PKI-encrypted ([CVE-2025-53627](https://github.com/meshtastic/firmware/security/advisories/GHSA-377p-prwp-4hwf)). Some vendors also shipped radios with cloned keys ([CVE-2025-52464](https://nvd.nist.gov/vuln/detail/CVE-2025-52464)); those need a full wipe.
+> - **Node keys are trusted on first sight.** If your radio has never heard the real node, or has forgotten it, someone else can claim its ID with their own key. Favorite the nodes you rely on so your radio keeps their keys.
+> - **The message text is whatever the sender typed.** Don't pass it into templates or actions that do anything with it.
+>
+> Use these events for notifications, logging and replies. If you still automate something from a message, require `authenticated: true` and a specific `from`.
 
 ```yaml
-# Turn the porch light on when a trusted node DMs "porch on", and reply.
 automation:
-  - alias: "Mesh: porch light"
+  # Push a phone notification when a node sends a direct message.
+  - alias: "Mesh: DM notification"
     triggers:
       - trigger: event
         event_type: meshtastic_ui_message_received
         event_data:
           type: dm
-          from: "!a1b2c3d4"
-          pki_encrypted: true
-    conditions:
-      - condition: template
-        value_template: "{{ trigger.event.data.message | lower | trim == 'porch on' }}"
     actions:
-      - action: light.turn_on
-        target:
-          entity_id: light.porch
-      - action: meshtastic_ui.send_message
+      - action: notify.mobile_app_my_phone
         data:
-          to: "{{ trigger.event.data.from }}"
-          message: "Porch light is on"
+          title: "Mesh DM from {{ trigger.event.data.from_name or trigger.event.data.from }}"
+          message: "{{ trigger.event.data.message }}"
 
   # Broadcast the porch weather every three hours.
   - alias: "Mesh: weather report"

@@ -623,6 +623,15 @@ def _handle_text_message(
 
     # Extract reply fields.
     packet_id = packet.get("id")
+
+    # Drop replays: a message we've already received from this sender.
+    if packet_id and not store.mark_message_seen(sender_id, packet_id):
+        _LOGGER.warning(
+            "Dropped repeated message %s from %s (possible replay)",
+            packet_id,
+            sender_id,
+        )
+        return
     reply_id = decoded.get("replyId") or decoded.get("reply_id")
 
     # Hop count: hops_away = hop_start - hop_limit, or hopsAway if provided directly.
@@ -655,6 +664,8 @@ def _handle_text_message(
     # Automation trigger. Ignored nodes stay ignored here too.
     if sender_id not in store.ignored_nodes:
         sender = store.get_node(sender_id)
+        via_mqtt = bool(packet.get("viaMqtt", False))
+        pki_encrypted = bool(packet.get("pkiEncrypted", False))
         hass.bus.async_fire(
             EVENT_MESSAGE_RECEIVED,
             {
@@ -671,10 +682,11 @@ def _handle_text_message(
                 "hops_away": hops_away,
                 "snr": packet.get("rxSnr"),
                 "rssi": packet.get("rxRssi"),
-                "via_mqtt": bool(packet.get("viaMqtt", False)),
+                "via_mqtt": via_mqtt,
                 # True when the DM was end-to-end encrypted to our key, which
                 # also proves the sender holds that node's private key.
-                "pki_encrypted": bool(packet.get("pkiEncrypted", False)),
+                "pki_encrypted": pki_encrypted,
+                "authenticated": not is_broadcast and pki_encrypted and not via_mqtt,
             },
         )
 

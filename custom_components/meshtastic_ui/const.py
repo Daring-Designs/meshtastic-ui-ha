@@ -10,6 +10,8 @@ SAVE_DELAY = 30  # seconds
 # Message limits
 MAX_CHANNEL_MESSAGES = 500
 MAX_DM_MESSAGES = 200
+# Received (sender, packet ID) pairs remembered to drop replayed messages.
+MAX_SEEN_MESSAGES = 5000
 
 # Node retention
 NODE_RETENTION_DAYS = 7

@@ -193,7 +193,7 @@
       "channel_message_received": "Channel message received",
       "direct_message_received": "Direct message received",
       "message_from_node": "Message received from this node",
-      "direct_message_from_node": "Direct message received from this node"
+      "direct_message_from_node": "Authenticated direct message received from this node"
     }
   },
   "selector": {

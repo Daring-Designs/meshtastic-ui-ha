@@ -263,16 +263,19 @@ async def test_trace_route_by_short_name(hass: HomeAssistant, radio: MagicMock) 
 # ---------------------------------------------------------------------------
 
 
-def _text_packet(text: str, to: str = "^all") -> dict:
+def _text_packet(
+    text: str, to: str = "^all", packet_id: int = 777, **overrides
+) -> dict:
     return {
         "fromId": REMOTE_ID,
         "toId": to,
         "channel": 0,
-        "id": 777,
+        "id": packet_id,
         "rxSnr": 4.0,
         "rxRssi": -101,
         "pkiEncrypted": to != "^all",
         "decoded": {"portnum": "TEXT_MESSAGE_APP", "text": text},
+        **overrides,
     }
 
 
@@ -291,7 +294,38 @@ async def test_message_received_event(hass: HomeAssistant, radio: MagicMock) -> 
     assert data["from_name"] == "Isberget"
     assert data["message"] == "lights on"
     assert data["pki_encrypted"] is True
+    assert data["authenticated"] is True
     assert data["rssi"] == -101
+
+
+async def test_authenticated_flag(hass: HomeAssistant, radio: MagicMock) -> None:
+    await _setup(hass, radio)
+    events = async_capture_events(hass, EVENT_MESSAGE_RECEIVED)
+    callback = _packet_callback(radio)
+
+    callback(_text_packet("channel", packet_id=1))
+    callback(_text_packet("legacy dm", to=LOCAL_ID, packet_id=2, pkiEncrypted=False))
+    callback(_text_packet("mqtt dm", to=LOCAL_ID, packet_id=3, viaMqtt=True))
+    await hass.async_block_till_done()
+
+    assert [event.data["authenticated"] for event in events] == [False, False, False]
+
+
+async def test_replayed_message_is_dropped(hass: HomeAssistant, radio: MagicMock) -> None:
+    entry = await _setup(hass, radio)
+    events = async_capture_events(hass, EVENT_MESSAGE_RECEIVED)
+    callback = _packet_callback(radio)
+
+    callback(_text_packet("open", to=LOCAL_ID, packet_id=4242))
+    callback(_text_packet("open", to=LOCAL_ID, packet_id=4242))
+    callback(_text_packet("open", to=LOCAL_ID, packet_id=4243))
+    await hass.async_block_till_done()
+
+    assert [event.data["message_id"] for event in events] == [4242, 4243]
+    store = hass.data[DOMAIN]["entries"][entry.entry_id]["store"]
+    assert len(store.get_dm_messages(REMOTE_ID)) == 2
+    # The history is saved, so a replay after a restart is dropped too.
+    assert f"{REMOTE_ID}:4242" in store._data_to_save()["seen_messages"]
 
 
 async def test_ignored_node_fires_no_event(hass: HomeAssistant, radio: MagicMock) -> None:
@@ -359,8 +393,10 @@ async def test_device_triggers(hass: HomeAssistant, radio: MagicMock) -> None:
         },
     )
 
-    _packet_callback(radio)(_text_packet("broadcast"))
-    _packet_callback(radio)(_text_packet("garage", to=LOCAL_ID))
+    callback = _packet_callback(radio)
+    callback(_text_packet("broadcast", packet_id=1))
+    callback(_text_packet("legacy", to=LOCAL_ID, packet_id=2, pkiEncrypted=False))
+    callback(_text_packet("garage", to=LOCAL_ID, packet_id=3))
     await hass.async_block_till_done()
 
     assert [call.data["text"] for call in calls] == ["garage"]
