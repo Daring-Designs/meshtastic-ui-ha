@@ -346,6 +346,10 @@ class MeshtasticUiStore:
         """Get all tracked nodes."""
         return dict(self._nodes)
 
+    def get_node(self, node_id: str) -> dict[str, Any]:
+        """Get one node's data, or an empty dict if it isn't tracked."""
+        return self._nodes.get(normalize_node_id(node_id), {})
+
     @property
     def messages_today(self) -> int:
         """Return today's message count."""

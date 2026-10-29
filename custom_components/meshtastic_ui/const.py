@@ -34,6 +34,17 @@ SIGNAL_DELIVERY_STATUS = f"{DOMAIN}_delivery_status"
 SIGNAL_WAYPOINT_UPDATE = f"{DOMAIN}_waypoint_update"
 SIGNAL_TRACEROUTE_RESULT = f"{DOMAIN}_traceroute_result"
 SIGNAL_NOTIFICATION_PREFS = f"{DOMAIN}_notification_prefs"
+SIGNAL_MONITORED_NODES = f"{DOMAIN}_monitored_nodes"
+
+# Home Assistant bus events (automation triggers)
+EVENT_MESSAGE_RECEIVED = f"{DOMAIN}_message_received"
+EVENT_DELIVERY_STATUS = f"{DOMAIN}_delivery_status"
+
+# Options: nodes that get their own HA device + entities
+CONF_MONITORED_NODES = "monitored_nodes"
+
+# Largest text payload the firmware accepts (bytes, UTF-8)
+MAX_TEXT_BYTES = 228
 
 # WebSocket command prefix
 WS_PREFIX = f"{DOMAIN}"

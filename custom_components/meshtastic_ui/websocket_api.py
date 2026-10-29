@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import (
     ActiveConnection,
     async_register_command,
@@ -22,6 +22,7 @@ from homeassistant.helpers.dispatcher import (
 
 from .connection import MeshtasticConnection
 from .const import (
+    CONF_MONITORED_NODES,
     DOMAIN,
     SIGNAL_DELIVERY_STATUS,
     SIGNAL_NEW_MESSAGE,
@@ -33,7 +34,8 @@ from .const import (
     TS_POINTS,
     WS_PREFIX,
 )
-from .store import MeshtasticUiStore
+from .messaging import async_send_text_message, looks_like_link_down
+from .store import MeshtasticUiStore, normalize_node_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +61,7 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_set_owner)
     async_register_command(hass, ws_device_action)
     async_register_command(hass, ws_node_admin)
+    async_register_command(hass, ws_set_monitored_node)
     async_register_command(hass, ws_get_waypoints)
     async_register_command(hass, ws_send_waypoint)
     async_register_command(hass, ws_delete_waypoint)
@@ -400,8 +403,19 @@ async def ws_nodes(
             "nodes": store.get_nodes(),
             "favorite_nodes": list(store.favorite_nodes),
             "ignored_nodes": list(store.ignored_nodes),
+            "monitored_nodes": _monitored_nodes(hass, msg.get("radio_id")),
         },
     )
+
+
+def _monitored_nodes(hass: HomeAssistant, radio_id: str | None) -> list[str]:
+    """Nodes that have Home Assistant entities on this radio's entry."""
+    entry_data = _get_entry_data(hass, radio_id)
+    entry_id = entry_data.get("entry_id") if entry_data else None
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    if entry is None:
+        return []
+    return list(entry.options.get(CONF_MONITORED_NODES, []))
 
 
 @websocket_command(
@@ -541,79 +555,26 @@ async def ws_send_message(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Send a message via the radio."""
-    from datetime import datetime, timezone
-
     radio_id = msg.get("radio_id")
     entry_data = _get_entry_data(hass, radio_id)
     if entry_data is None:
         connection.send_error(msg["id"], "no_radio", "No radio configured")
         return
     conn = entry_data["connection"]
-    store = entry_data["store"]
-    text = msg["text"]
-    channel = msg.get("channel", 0)
-    to = msg.get("to")
-    reply_id = msg.get("reply_id")
-
-    # Determine local node ID for the outgoing message.
-    local_node_id = None
-    my_info = conn.my_info
-    node_num = my_info.get("num")
-    if node_num is not None:
-        local_node_id = f"!{node_num:08x}"
 
     # Resolve the per-entry id even if radio_id was omitted (multi-radio).
     entry_id_for_dispatch = entry_data.get("entry_id") or radio_id
 
     try:
-        packet_id = await conn.async_send_text(
-            text, destination_id=to, channel_index=channel,
-            reply_id=reply_id,
+        packet_id = await async_send_text_message(
+            hass,
+            entry_data,
+            msg["text"],
+            channel=msg.get("channel", 0),
+            to=msg.get("to"),
+            reply_id=msg.get("reply_id"),
+            entry_id=entry_id_for_dispatch,
         )
-        # Register for delivery tracking against this radio's pending_acks.
-        if packet_id is not None:
-            entry_data.setdefault("pending_acks", {})[packet_id] = {
-                "text": text,
-                "to": to,
-                "channel": channel,
-                "_ts": time.time(),
-            }
-
-        # Store and dispatch the outgoing message so the UI shows it.
-        timestamp = datetime.now(timezone.utc).isoformat()
-        out_msg: dict[str, Any] = {
-            "text": text,
-            "from": local_node_id or "local",
-            "timestamp": timestamp,
-            "_outgoing": True,
-        }
-        if packet_id is not None:
-            out_msg["packet_id"] = packet_id
-            out_msg["message_id"] = packet_id
-        if reply_id:
-            out_msg["reply_id"] = reply_id
-
-        if to:
-            # DM
-            out_msg["to"] = to
-            store.add_dm_message(to, out_msg)
-            async_dispatcher_send(
-                hass,
-                SIGNAL_NEW_MESSAGE,
-                {"entry_id": entry_id_for_dispatch, "type": "dm", "partner": to, **out_msg},
-            )
-        else:
-            # Channel broadcast.
-            channel_key = str(channel)
-            out_msg["to"] = "^all"
-            out_msg["channel"] = channel_key
-            store.add_channel_message(channel_key, out_msg)
-            async_dispatcher_send(
-                hass,
-                SIGNAL_NEW_MESSAGE,
-                {"entry_id": entry_id_for_dispatch, "type": "channel", "channel": channel_key, **out_msg},
-            )
-
         connection.send_result(
             msg["id"], {"success": True, "packet_id": packet_id}
         )
@@ -621,18 +582,7 @@ async def ws_send_message(
         # Any send failure on a radio means the link is unreliable right now —
         # kick a forced reconnect so the next attempt has a fresh interface.
         err_text = str(err) or err.__class__.__name__
-        link_down_signals = (
-            "Not connected",
-            "ConnectionError",
-            "TimeoutError",
-            "No connection",
-            "is_connected",
-        )
-        looks_like_link_down = (
-            any(s in err_text for s in link_down_signals)
-            or "Connection" in type(err).__name__
-        )
-        if looks_like_link_down:
+        if looks_like_link_down(err):
             _LOGGER.warning(
                 "Send failed for radio %s (link likely down: %s) — forcing reconnect",
                 entry_id_for_dispatch, err_text,
@@ -929,6 +879,42 @@ async def ws_node_admin(
     except Exception as err:  # noqa: BLE001
         _LOGGER.exception("Node admin '%s' on %s failed", action, node_id)
         connection.send_error(msg["id"], "node_admin_failed", "Operation failed")
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/set_monitored_node",
+        vol.Optional("radio_id"): vol.Any(str, None),
+        vol.Required("node_id"): str,
+        vol.Required("monitored"): bool,
+    }
+)
+@websocket_api.require_admin
+@async_response
+async def ws_set_monitored_node(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Add or remove a node's Home Assistant device and entities."""
+    entry_data = _get_entry_data(hass, msg.get("radio_id"))
+    entry_id = entry_data.get("entry_id") if entry_data else None
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    if entry is None:
+        connection.send_error(msg["id"], "no_radio", "No radio configured")
+        return
+    node_id = normalize_node_id(msg["node_id"]).lower()
+    nodes = {
+        normalize_node_id(node) for node in entry.options.get(CONF_MONITORED_NODES, [])
+    }
+    if msg["monitored"]:
+        nodes.add(node_id)
+    else:
+        nodes.discard(node_id)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_MONITORED_NODES: sorted(nodes)}
+    )
+    connection.send_result(
+        msg["id"], {"success": True, "monitored_nodes": sorted(nodes)}
+    )
 
 
 @websocket_command(

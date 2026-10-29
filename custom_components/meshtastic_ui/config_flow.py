@@ -8,17 +8,31 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_CONNECTION_TYPE,
+    CONF_MONITORED_NODES,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
     CONF_TCP_PORT,
     DEFAULT_TCP_PORT,
     DOMAIN,
 )
+from .store import normalize_node_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +64,12 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_host: str | None = None
         self._discovered_port: int | None = None
         self._validated_node_id: str | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Options: which mesh nodes get Home Assistant entities."""
+        return MeshtasticUiOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
@@ -288,3 +308,72 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         from meshtastic.util import findPorts
 
         return findPorts()
+
+
+class MeshtasticUiOptionsFlow(OptionsFlow):
+    """Pick the mesh nodes that become Home Assistant devices."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show a multi-select of nodes this radio has heard."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = [
+                normalize_node_id(node_id.strip())
+                for node_id in user_input.get(CONF_MONITORED_NODES, [])
+            ]
+            if all(_NODE_ID_RE.fullmatch(node_id) for node_id in selected):
+                return self.async_create_entry(
+                    data={
+                        **self.config_entry.options,
+                        CONF_MONITORED_NODES: sorted({node_id.lower() for node_id in selected}),
+                    }
+                )
+            errors[CONF_MONITORED_NODES] = "invalid_node_id"
+
+        entry_data = (
+            self.hass.data.get(DOMAIN, {})
+            .get("entries", {})
+            .get(self.config_entry.entry_id)
+        )
+        nodes = entry_data["store"].get_nodes() if entry_data else {}
+        local_num = entry_data["ts"].get("local_node_num") if entry_data else None
+        local_id = f"!{local_num:08x}" if local_num is not None else None
+        current = list(self.config_entry.options.get(CONF_MONITORED_NODES, []))
+
+        options = sorted(
+            (
+                SelectOptionDict(
+                    value=node_id,
+                    label=f"{data.get('name') or node_id} ({node_id})",
+                )
+                for node_id, data in nodes.items()
+                if node_id != local_id and _NODE_ID_RE.fullmatch(node_id)
+            ),
+            key=lambda option: option["label"].casefold(),
+        )
+        # Keep picks the store has since pruned, so saving doesn't drop them.
+        known = {option["value"] for option in options}
+        options += [
+            SelectOptionDict(value=node_id, label=node_id)
+            for node_id in current
+            if node_id not in known
+        ]
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_MONITORED_NODES, default=current): SelectSelector(
+                        SelectSelectorConfig(
+                            options=options,
+                            multiple=True,
+                            custom_value=True,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+        )

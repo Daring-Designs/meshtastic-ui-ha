@@ -257,7 +257,9 @@ export default {
       node_unignored: "Node unignored",
       action_failed: "Action failed",
       node_removed: "Node removed",
-      remove_failed: "Remove failed"
+      remove_failed: "Remove failed",
+      entities_added: "Added to Home Assistant",
+      entities_removed: "Removed from Home Assistant"
     },
     time: {
       just_now: "Just now",
@@ -310,6 +312,9 @@ export default {
         request_info: "Request Info",
         ignore: "Ignore",
         unignore: "Unignore",
+        add_to_ha: "Add to Home Assistant",
+        remove_from_ha: "Remove from Home Assistant",
+        ha_entities_hint: "Give this node a Home Assistant device with battery, telemetry and location entities",
         remove: "Remove"
       }
     },
@@ -912,6 +917,9 @@ export default {
       request_info: "Request Info",
       ignore: "Ignore",
       unignore: "Unignore",
+      add_to_ha: "Add to Home Assistant",
+      remove_from_ha: "Remove from Home Assistant",
+      ha_entities_hint: "Give this node a Home Assistant device with battery, telemetry and location entities",
       remove: "Remove",
       remove_confirm: "Remove node {name} from the mesh database?"
     }
