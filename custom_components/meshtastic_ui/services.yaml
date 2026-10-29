@@ -1,0 +1,101 @@
+send_message:
+  fields:
+    message:
+      required: true
+      example: "Porch is 21.4 °C"
+      selector:
+        text:
+          multiline: true
+    to:
+      example: "!a1b2c3d4"
+      selector:
+        text:
+    channel:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 7
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: meshtastic_ui
+
+send_waypoint:
+  fields:
+    latitude:
+      required: true
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+          mode: box
+    longitude:
+      required: true
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
+          mode: box
+    name:
+      example: "Trailhead"
+      selector:
+        text:
+    description:
+      selector:
+        text:
+    expire_hours:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 8760
+          unit_of_measurement: h
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: meshtastic_ui
+
+trace_route:
+  fields: &node_fields
+    node:
+      required: true
+      example: "!a1b2c3d4"
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: meshtastic_ui
+
+request_position:
+  fields: *node_fields
+
+request_nodeinfo:
+  fields: *node_fields
+
+request_telemetry:
+  fields:
+    node:
+      required: true
+      example: "!a1b2c3d4"
+      selector:
+        text:
+    type:
+      default: device
+      selector:
+        select:
+          translation_key: telemetry_type
+          options:
+            - device
+            - environment
+            - air_quality
+            - power
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: meshtastic_ui

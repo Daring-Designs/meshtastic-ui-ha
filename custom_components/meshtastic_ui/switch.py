@@ -11,6 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_NOTIFICATION_PREFS
+from .entity import gateway_device_info
 from .store import MeshtasticUiStore
 
 
@@ -46,6 +47,7 @@ class MeshNotificationsSwitch(SwitchEntity):
         self._store = store
         self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_notifications_enabled"
+        self._attr_device_info = gateway_device_info(entry_id)
 
     @property
     def is_on(self) -> bool:

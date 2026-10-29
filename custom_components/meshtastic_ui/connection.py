@@ -448,6 +448,35 @@ class MeshtasticConnection:
 
         await self._hass.async_add_executor_job(_request)
 
+    async def async_request_telemetry(
+        self, destination_id: str, telemetry_type: str = "device_metrics"
+    ) -> None:
+        """Request a telemetry reading from a remote node (non-blocking).
+
+        Sends an empty Telemetry proto with only the requested variant set;
+        the node answers with a TELEMETRY_APP packet that arrives through
+        the meshtastic.receive pubsub callback. Nodes without the matching
+        sensor (e.g. no environment sensor) don't answer.
+        """
+        if self._interface is None:
+            raise RuntimeError("Not connected to radio")
+
+        iface = self._interface
+
+        def _request() -> None:
+            from meshtastic.protobuf import portnums_pb2, telemetry_pb2
+
+            telemetry = telemetry_pb2.Telemetry()
+            getattr(telemetry, telemetry_type).SetInParent()
+            iface.sendData(
+                telemetry,
+                destination_id,
+                portNum=portnums_pb2.TELEMETRY_APP,
+                wantResponse=True,
+            )
+
+        await self._hass.async_add_executor_job(_request)
+
     async def async_get_config(self) -> dict[str, Any]:
         """Read full config from the radio (local, module, channels, owner, metadata)."""
         if self._interface is None:

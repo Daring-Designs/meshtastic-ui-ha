@@ -35,5 +35,315 @@
     "abort": {
       "already_configured": "Meshtastic UI is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Home Assistant entities",
+        "description": "Pick the mesh nodes that get their own device with battery, telemetry, signal and location entities. Your own radio always has them. Sensors appear once a node reports each reading.",
+        "data": {
+          "monitored_nodes": "Nodes"
+        }
+      }
+    },
+    "error": {
+      "invalid_node_id": "Node IDs look like !a1b2c3d4."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "voltage": {
+        "name": "Voltage"
+      },
+      "channel_utilization": {
+        "name": "Channel utilization"
+      },
+      "air_util_tx": {
+        "name": "Airtime (TX)"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "snr": {
+        "name": "SNR"
+      },
+      "rssi": {
+        "name": "RSSI"
+      },
+      "hops": {
+        "name": "Hops away"
+      },
+      "last_heard": {
+        "name": "Last heard"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "pressure": {
+        "name": "Pressure"
+      },
+      "gas_resistance": {
+        "name": "Gas resistance"
+      },
+      "iaq": {
+        "name": "Indoor air quality"
+      },
+      "env_voltage": {
+        "name": "Sensor voltage"
+      },
+      "env_current": {
+        "name": "Sensor current"
+      },
+      "lux": {
+        "name": "Illuminance"
+      },
+      "white_lux": {
+        "name": "White light"
+      },
+      "ir_lux": {
+        "name": "Infrared light"
+      },
+      "uv_lux": {
+        "name": "UV light"
+      },
+      "wind_direction": {
+        "name": "Wind direction"
+      },
+      "wind_speed": {
+        "name": "Wind speed"
+      },
+      "wind_gust": {
+        "name": "Wind gust"
+      },
+      "wind_lull": {
+        "name": "Wind lull"
+      },
+      "rainfall_1h": {
+        "name": "Rainfall (1 h)"
+      },
+      "rainfall_24h": {
+        "name": "Rainfall (24 h)"
+      },
+      "soil_moisture": {
+        "name": "Soil moisture"
+      },
+      "soil_temperature": {
+        "name": "Soil temperature"
+      },
+      "weight": {
+        "name": "Weight"
+      },
+      "distance": {
+        "name": "Distance"
+      },
+      "radiation": {
+        "name": "Radiation"
+      },
+      "pm1_0": {
+        "name": "PM1.0"
+      },
+      "pm2_5": {
+        "name": "PM2.5"
+      },
+      "pm10": {
+        "name": "PM10"
+      },
+      "co2": {
+        "name": "CO₂"
+      },
+      "ch1_voltage": {
+        "name": "Channel 1 voltage"
+      },
+      "ch1_current": {
+        "name": "Channel 1 current"
+      },
+      "ch2_voltage": {
+        "name": "Channel 2 voltage"
+      },
+      "ch2_current": {
+        "name": "Channel 2 current"
+      },
+      "ch3_voltage": {
+        "name": "Channel 3 voltage"
+      },
+      "ch3_current": {
+        "name": "Channel 3 current"
+      }
+    },
+    "binary_sensor": {
+      "connected": {
+        "name": "Radio connected"
+      }
+    },
+    "device_tracker": {
+      "location": {
+        "name": "Location"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "message_received": "Message received",
+      "channel_message_received": "Channel message received",
+      "direct_message_received": "Direct message received",
+      "message_from_node": "Message received from this node",
+      "direct_message_from_node": "Authenticated direct message received from this node"
+    }
+  },
+  "selector": {
+    "telemetry_type": {
+      "options": {
+        "device": "Device (battery, voltage, airtime)",
+        "environment": "Environment (temperature, humidity, pressure…)",
+        "air_quality": "Air quality (particulates, CO₂)",
+        "power": "Power (INA voltage and current)"
+      }
+    }
+  },
+  "services": {
+    "send_message": {
+      "name": "Send message",
+      "description": "Sends a text message to a channel, or a direct message to one node.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Text to send, up to 228 bytes."
+        },
+        "to": {
+          "name": "To",
+          "description": "Node ID or exact name for a direct message. Leave empty to post on the channel."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "Channel index (0 is the primary channel)."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    },
+    "send_waypoint": {
+      "name": "Send waypoint",
+      "description": "Shares a map waypoint with the mesh.",
+      "fields": {
+        "latitude": {
+          "name": "Latitude",
+          "description": "Waypoint latitude."
+        },
+        "longitude": {
+          "name": "Longitude",
+          "description": "Waypoint longitude."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Short label, up to 30 characters."
+        },
+        "description": {
+          "name": "Description",
+          "description": "Up to 100 characters."
+        },
+        "expire_hours": {
+          "name": "Expires after",
+          "description": "Hours until the waypoint disappears. 0 keeps it."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    },
+    "trace_route": {
+      "name": "Trace route",
+      "description": "Traces the hops to a node. The result shows on the panel's map.",
+      "fields": {
+        "node": {
+          "name": "Node",
+          "description": "Node ID (!a1b2c3d4) or the node's exact long or short name."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    },
+    "request_position": {
+      "name": "Request position",
+      "description": "Asks a node to send its current position.",
+      "fields": {
+        "node": {
+          "name": "Node",
+          "description": "Node ID (!a1b2c3d4) or the node's exact long or short name."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    },
+    "request_nodeinfo": {
+      "name": "Request node info",
+      "description": "Asks a node for its name and hardware.",
+      "fields": {
+        "node": {
+          "name": "Node",
+          "description": "Node ID (!a1b2c3d4) or the node's exact long or short name."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    },
+    "request_telemetry": {
+      "name": "Request telemetry",
+      "description": "Asks a node for a fresh telemetry reading. Its sensors update when the answer arrives. Nodes without that kind of sensor don't answer.",
+      "fields": {
+        "node": {
+          "name": "Node",
+          "description": "Node ID (!a1b2c3d4) or the node's exact long or short name."
+        },
+        "type": {
+          "name": "Telemetry type",
+          "description": "Which readings to ask for."
+        },
+        "config_entry_id": {
+          "name": "Radio",
+          "description": "Which radio to use. Only needed when more than one is set up."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "no_radio": {
+      "message": "No Meshtastic radio is set up."
+    },
+    "radio_required": {
+      "message": "More than one radio is set up. Choose one with the Radio field."
+    },
+    "radio_not_found": {
+      "message": "No Meshtastic UI radio with config entry ID {config_entry_id}."
+    },
+    "node_not_found": {
+      "message": "No node matches \"{node}\". Use its node ID, like !a1b2c3d4."
+    },
+    "node_ambiguous": {
+      "message": "More than one node is named \"{node}\". Use its node ID, like !a1b2c3d4."
+    },
+    "message_too_long": {
+      "message": "The message is longer than {max} bytes, the most a Meshtastic packet holds."
+    },
+    "radio_disconnected": {
+      "message": "The radio link dropped. It is reconnecting; try again in a few seconds."
+    },
+    "action_failed": {
+      "message": "{action} failed: {error}"
+    }
   }
 }
