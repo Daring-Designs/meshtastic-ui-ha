@@ -353,6 +353,7 @@ export default {
     lora: {
       region: "Region",
       modem_preset: "Modem Preset",
+      modem_preset_desc: "All nodes on a mesh must use the same preset. Turbo presets use 500 kHz and aren't allowed in every region (not EU 868).",
       hop_limit: "Hop Limit",
       hop_limit_desc: "Max number of hops (1-7)",
       tx_power: "TX Power (dBm)",
@@ -382,7 +383,13 @@ export default {
         short_fast: "Short Range / Fast",
         short_slow: "Short Range / Slow",
         medium_fast: "Medium Range / Fast",
-        medium_slow: "Medium Range / Slow"
+        medium_slow: "Medium Range / Slow",
+        short_turbo: "Short Range / Turbo",
+        long_turbo: "Long Range / Turbo",
+        lite_fast: "Lite / Fast",
+        lite_slow: "Lite / Slow",
+        narrow_fast: "Narrow / Fast",
+        narrow_slow: "Narrow / Slow"
       },
       regions: {
         unset: "Unset",

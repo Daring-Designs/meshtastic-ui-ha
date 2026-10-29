@@ -29,14 +29,30 @@ function translateOptions(options) {
 
 /* ── LoRa modem presets & region enum maps ── */
 const MODEM_PRESETS = [
-  { value: "LONG_FAST", labelKey: "settings.lora.presets.long_fast" },
-  { value: "LONG_SLOW", labelKey: "settings.lora.presets.long_slow" },
-  { value: "LONG_MODERATE", labelKey: "settings.lora.presets.long_moderate" },
+  { value: "SHORT_TURBO", labelKey: "settings.lora.presets.short_turbo" },
   { value: "SHORT_FAST", labelKey: "settings.lora.presets.short_fast" },
   { value: "SHORT_SLOW", labelKey: "settings.lora.presets.short_slow" },
   { value: "MEDIUM_FAST", labelKey: "settings.lora.presets.medium_fast" },
   { value: "MEDIUM_SLOW", labelKey: "settings.lora.presets.medium_slow" },
+  { value: "LONG_TURBO", labelKey: "settings.lora.presets.long_turbo" },
+  { value: "LONG_FAST", labelKey: "settings.lora.presets.long_fast" },
+  { value: "LONG_MODERATE", labelKey: "settings.lora.presets.long_moderate" },
+  { value: "LONG_SLOW", labelKey: "settings.lora.presets.long_slow" },
+  // Narrowband presets for EU 866/868 and the amateur bands.
+  { value: "LITE_FAST", labelKey: "settings.lora.presets.lite_fast" },
+  { value: "LITE_SLOW", labelKey: "settings.lora.presets.lite_slow" },
+  { value: "NARROW_FAST", labelKey: "settings.lora.presets.narrow_fast" },
+  { value: "NARROW_SLOW", labelKey: "settings.lora.presets.narrow_slow" },
 ];
+
+/** Preset options, plus the radio's current one if this list doesn't know it. */
+function modemPresetOptions(current) {
+  const options = translateOptions(MODEM_PRESETS);
+  if (current && !MODEM_PRESETS.some((preset) => preset.value === current)) {
+    options.push({ value: current, label: current });
+  }
+  return options;
+}
 
 const REGIONS = [
   { value: "UNSET", labelKey: "settings.lora.regions.unset" },
@@ -471,8 +487,9 @@ class MeshSettingsLora extends LitElement {
 
             <mesh-select
               label=${t("settings.lora.modem_preset")}
+              description=${t("settings.lora.modem_preset_desc")}
               .value=${String(d.modem_preset || "LONG_FAST")}
-              .options=${translateOptions(MODEM_PRESETS)}
+              .options=${modemPresetOptions(String(d.modem_preset || "LONG_FAST"))}
               @change=${(e) => this._updateField("modem_preset", e.detail.value)}
             ></mesh-select>
 
