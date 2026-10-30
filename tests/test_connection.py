@@ -447,7 +447,7 @@ class TestBleConnection:
         """Test that HomeAssistantBLEInterface._read_from_radio retries on transient empty reads."""
         hass = MagicMock()
         ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
-        ble_iface._connected = True
+        ble_iface._link_up = True
         mock_client = MagicMock()
         mock_client.is_connected = True
 
@@ -474,7 +474,7 @@ class TestBleConnection:
         hass = MagicMock()
         hass.loop = asyncio.get_running_loop()
         ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
-        ble_iface._connected = True
+        ble_iface._link_up = True
         mock_client = MagicMock()
         mock_client.is_connected = True
         mock_client.disconnect = AsyncMock()
@@ -492,7 +492,7 @@ class TestBleConnection:
 
         await ble_iface.async_close()
         await asyncio.sleep(0)  # yield to allow cancellation to propagate
-        assert not ble_iface._connected
+        assert not ble_iface._link_up
         assert ble_iface._send_task.done()
         assert ble_iface._heartbeat_task.done()
 
@@ -520,7 +520,78 @@ class TestBleConnection:
         # Should not cancel existing task because it was debounced
         reconnect_task.cancel.assert_not_called()
 
+    async def test_send_loop_write_failure_triggers_reconnect(self):
+        """A TORADIO write that fails both ways drops the link instead of stalling the queue."""
+        import asyncio
+        from unittest.mock import AsyncMock
+        hass = MagicMock()
+        hass.loop = asyncio.get_running_loop()
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface._link_up = True
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        mock_client.write_gatt_char = AsyncMock(side_effect=OSError("write failed"))
+        ble_iface.client = mock_client
+        ble_iface._disconnected = MagicMock()
+
+        ble_iface._outgoing_queue.put_nowait(b"")
+        await asyncio.wait_for(ble_iface._send_loop(), timeout=1)
+
+        assert mock_client.write_gatt_char.await_count == 2
+        assert not ble_iface._link_up
+        ble_iface._disconnected.assert_called_once()
+
+    async def test_ble_connect_rejects_proxy_only_device(self, monkeypatch):
+        """A radio seen only through a Bluetooth proxy fails with a clear error."""
+        from types import SimpleNamespace
+        hass = MagicMock()
+        proxy_device = SimpleNamespace(details={"source": "esphome-proxy"})
+        fake_bt = SimpleNamespace(
+            async_ble_device_from_address=lambda *a, **k: proxy_device,
+            async_scanner_devices_by_address=lambda *a, **k: [
+                SimpleNamespace(ble_device=proxy_device)
+            ],
+        )
+        monkeypatch.setattr(connection_mod, "bluetooth", fake_bt)
+        establish = MagicMock()
+        monkeypatch.setattr(connection_mod, "establish_connection", establish)
+
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        with pytest.raises(RuntimeError, match="Bluetooth proxy"):
+            await ble_iface.async_connect()
+        establish.assert_not_called()
 
 
+    def test_ble_link_flag_does_not_shadow_mesh_interface_connected(self):
+        """MeshInterface._handleConfigComplete calls self._connected(); it must stay a method."""
+        hass = MagicMock()
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface._link_up = True
+        assert callable(ble_iface._connected)
 
+    async def test_ble_disconnect_reports_unsent_packets(self):
+        """Queued and in-flight mesh packets are reported as unsent when the link drops."""
+        from meshtastic import mesh_pb2
+        hass = MagicMock()
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface._link_up = True
+        ble_iface._disconnected = MagicMock()
+        reported = []
+        ble_iface.on_unsent = reported.extend
 
+        def to_radio(packet_id):
+            msg = mesh_pb2.ToRadio()
+            msg.packet.id = packet_id
+            return msg.SerializeToString()
+
+        heartbeat = mesh_pb2.ToRadio()
+        heartbeat.heartbeat.CopyFrom(mesh_pb2.Heartbeat())
+        ble_iface._in_flight = to_radio(111)
+        ble_iface._outgoing_queue.put_nowait(heartbeat.SerializeToString())
+        ble_iface._outgoing_queue.put_nowait(to_radio(222))
+
+        ble_iface._on_ble_disconnected(None)
+
+        assert reported == [111, 222]
+        assert ble_iface._outgoing_queue.empty()
+        assert ble_iface._in_flight is None

@@ -63,3 +63,14 @@ async def test_async_pair_bleak_client_already_bonded():
         success = await ble_pairing.async_pair_bleak_client(mock_client, "AA:BB:CC:DD:EE:FF", "123456")
         assert success is True
         mock_client.pair.assert_not_called()
+
+
+def test_bluez_adapter_from_ble_device():
+    """Local adapter sightings carry a BlueZ path; proxy sightings don't."""
+    from types import SimpleNamespace
+    local = SimpleNamespace(details={"path": "/org/bluez/hci1/dev_AA_BB_CC_DD_EE_FF"})
+    proxy = SimpleNamespace(details={"source": "esphome-proxy", "address_type": 0})
+    assert ble_pairing.bluez_adapter_from_ble_device(local) == "hci1"
+    assert ble_pairing.bluez_adapter_from_ble_device(proxy) is None
+    assert ble_pairing.bluez_adapter_from_ble_device(SimpleNamespace(details=None)) is None
+

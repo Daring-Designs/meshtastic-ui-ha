@@ -221,15 +221,22 @@ class HomeAssistantBLEInterface(MeshInterface):
         self._address = address.strip().upper()
         self._pin = pin or DEFAULT_BLE_PIN
         self.client: Any = None
-        self._connected = False
+        self._link_up = False
         self._outgoing_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._in_flight: bytes | None = None  # being written, not yet confirmed
+        # Called with the packet IDs of mesh packets that never reached the radio.
+        self.on_unsent: Callable[[list[int]], None] | None = None
         self._send_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._read_lock = asyncio.Lock()
 
     async def async_connect(self) -> None:
         """Establish BLE connection via Home Assistant's bluetooth manager."""
-        from .ble_pairing import async_is_device_bonded, async_pair_bleak_client
+        from .ble_pairing import (
+            async_is_device_bonded,
+            async_pair_bleak_client,
+            bluez_adapter_from_ble_device,
+        )
 
         if bluetooth is None:
             raise RuntimeError("homeassistant.components.bluetooth is not available")
@@ -258,6 +265,24 @@ class HomeAssistantBLEInterface(MeshInterface):
                 f"No BLE device found for address {self._address} in Home Assistant bluetooth history"
             )
 
+        # Pairing goes through BlueZ, so the radio must be seen by an adapter on
+        # the HA host. Prefer such a sighting if a proxy reported the best one.
+        adapter = bluez_adapter_from_ble_device(ble_device)
+        if adapter is None and hasattr(bluetooth, "async_scanner_devices_by_address"):
+            for scanner_device in bluetooth.async_scanner_devices_by_address(
+                self._hass, self._address, connectable=True
+            ):
+                adapter = bluez_adapter_from_ble_device(scanner_device.ble_device)
+                if adapter is not None:
+                    ble_device = scanner_device.ble_device
+                    break
+        if adapter is None:
+            raise RuntimeError(
+                f"BLE device {self._address} is only reachable through a Bluetooth "
+                "proxy. Meshtastic BLE needs a Bluetooth adapter on the Home "
+                "Assistant host because the radio must be paired through BlueZ"
+            )
+
         _LOGGER.debug("Connecting to BLE device %s using BleakClientWithServiceCache", self._address)
         if establish_connection is None:
             raise RuntimeError("bleak_retry_connector is not available")
@@ -270,16 +295,23 @@ class HomeAssistantBLEInterface(MeshInterface):
             max_attempts=3,
         )
         self.client = client
-        self._connected = True
-        self.isConnected.set()
 
-        # Ensure BLE link is paired and authenticated before GATT transactions
-        is_bonded = await async_is_device_bonded(self._address)
+        # Ensure BLE link is paired and authenticated before GATT transactions.
+        # The radio sends nothing to an unpaired client, so a failed pairing
+        # must fail the connect rather than show Connected with no data.
+        is_bonded = await async_is_device_bonded(self._address, adapter)
         if not is_bonded:
             _LOGGER.info("BLE device %s is not bonded; pairing active connection with PIN", self._address)
-            paired = await async_pair_bleak_client(client, self._address, self._pin)
+            paired = await async_pair_bleak_client(client, self._address, self._pin, adapter)
             if not paired:
-                _LOGGER.warning("BLE link pairing did not complete successfully for %s", self._address)
+                await self.async_close()
+                raise RuntimeError(
+                    f"BLE pairing with {self._address} failed; check the PIN "
+                    "shown on the radio"
+                )
+
+        self._link_up = True
+        self.isConnected.set()
 
         # Subscribe to FROMNUM notifications
         await client.start_notify(MESHTASTIC_BLE_FROMNUM_UUID, self._on_fromnum_notify)
@@ -326,16 +358,46 @@ class HomeAssistantBLEInterface(MeshInterface):
 
     def _on_ble_disconnected(self, client: Any) -> None:
         """Callback when BLE link drops."""
+        if not self._link_up:
+            return  # already handled, or an intentional close
         _LOGGER.warning("BLE device %s disconnected", self._address)
-        self._connected = False
+        self._link_up = False
         if hasattr(self, "isConnected") and hasattr(self.isConnected, "clear"):
             self.isConnected.clear()
         if self._send_task and not self._send_task.done():
             self._send_task.cancel()
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
+        self._report_unsent()
         if hasattr(self, "_disconnected"):
             self._disconnected()
+
+    def _report_unsent(self) -> None:
+        """Drop queued and in-flight packets and report the mesh packet IDs among them.
+
+        The queue belongs to this link and is discarded on reconnect, so these
+        messages are lost. Reporting them lets the UI show them as failed now
+        instead of timing out minutes later.
+        """
+        pending = [self._in_flight] if self._in_flight is not None else []
+        self._in_flight = None
+        while not self._outgoing_queue.empty():
+            pending.append(self._outgoing_queue.get_nowait())
+        if not pending or self.on_unsent is None:
+            return
+        from meshtastic import mesh_pb2
+
+        packet_ids = []
+        for b in pending:
+            to_radio = mesh_pb2.ToRadio()
+            try:
+                to_radio.ParseFromString(b)
+            except Exception:  # noqa: BLE001
+                continue
+            if to_radio.HasField("packet") and to_radio.packet.id:
+                packet_ids.append(to_radio.packet.id)
+        if packet_ids:
+            self.on_unsent(packet_ids)
 
     def _on_fromnum_notify(self, characteristic: Any, data: bytearray) -> None:
         """Handle FROMNUM notify indicating the radio has packet data waiting."""
@@ -358,11 +420,11 @@ class HomeAssistantBLEInterface(MeshInterface):
 
     async def _read_from_radio(self, max_empty_retries: int = 1) -> None:
         """Read pending packets from FROMRADIO GATT characteristic."""
-        if not self._connected or not self.client or not self.client.is_connected:
+        if not self._link_up or not self.client or not self.client.is_connected:
             return
         async with self._read_lock:
             empty_count = 0
-            while self._connected and self.client and self.client.is_connected:
+            while self._link_up and self.client and self.client.is_connected:
                 try:
                     b = await self.client.read_gatt_char(MESHTASTIC_BLE_FROMRADIO_UUID)
                 except Exception as err:
@@ -384,10 +446,11 @@ class HomeAssistantBLEInterface(MeshInterface):
 
     async def _send_loop(self) -> None:
         """Worker task processing outbound TORADIO packets."""
-        while self._connected and self.client and self.client.is_connected:
+        while self._link_up and self.client and self.client.is_connected:
             try:
                 b = await self._outgoing_queue.get()
-                char = self.client.services.get_characteristic(MESHTASTIC_BLE_TORADIO_UUID)
+                self._in_flight = b
+                char =self.client.services.get_characteristic(MESHTASTIC_BLE_TORADIO_UUID)
                 props = getattr(char, "properties", []) or []
                 use_response = "write" in props
                 try:
@@ -400,22 +463,29 @@ class HomeAssistantBLEInterface(MeshInterface):
                         write_err,
                     )
                     await self.client.write_gatt_char(MESHTASTIC_BLE_TORADIO_UUID, b, response=not use_response)
+                self._in_flight = None
                 self._outgoing_queue.task_done()
                 await asyncio.sleep(0.02)
                 await self._read_from_radio(max_empty_retries=2)
             except asyncio.CancelledError:
                 break
             except Exception as err:
-                _LOGGER.error("Failed to write to TORADIO on %s: %s", self._address, err)
+                # The link can still look up while writes fail. Treat it as a
+                # disconnect so the reconnect loop runs instead of leaving
+                # packets stuck in the queue behind a Connected status.
+                _LOGGER.error(
+                    "Failed to write to TORADIO on %s: %s; reconnecting", self._address, err
+                )
+                self._on_ble_disconnected(self.client)
                 break
 
     async def _heartbeat_loop(self) -> None:
         """Periodic heartbeat and drain loop to keep ESP32 BLE session active."""
         interval_counter = 0
-        while self._connected and self.client and self.client.is_connected:
+        while self._link_up and self.client and self.client.is_connected:
             try:
                 await asyncio.sleep(5.0)
-                if not self._connected or not self.client or not self.client.is_connected:
+                if not self._link_up or not self.client or not self.client.is_connected:
                     break
                 interval_counter += 5
                 # Proactively drain FROMRADIO in case a FROMNUM notify was dropped by BlueZ
@@ -442,7 +512,7 @@ class HomeAssistantBLEInterface(MeshInterface):
     def _sendToRadioImpl(self, toRadio: Any) -> None:
         """Enqueue outbound protobuf packet to be written to TORADIO."""
         b: bytes = toRadio.SerializeToString()
-        if not b or not self._connected:
+        if not b or not self._link_up:
             return
         if self._hass.loop.is_running():
             self._hass.loop.call_soon_threadsafe(self._outgoing_queue.put_nowait, b)
@@ -451,14 +521,14 @@ class HomeAssistantBLEInterface(MeshInterface):
 
     def _waitConnected(self, timeout: float = 30.0) -> None:
         """BLE interface is already connected when active."""
-        if not self._connected or not self.client or not self.client.is_connected:
+        if not self._link_up or not self.client or not self.client.is_connected:
             if MeshInterface is not object and hasattr(MeshInterface, "MeshInterfaceError"):
                 raise MeshInterface.MeshInterfaceError("BLE interface is not connected")
             raise RuntimeError("BLE interface is not connected")
 
     async def async_close(self) -> None:
         """Cleanly disconnect BLE client and stop background tasks."""
-        self._connected = False
+        self._link_up = False
         if hasattr(self, "isConnected") and hasattr(self.isConnected, "clear"):
             self.isConnected.clear()
         if MeshInterface is not object and hasattr(MeshInterface, "close"):
@@ -470,6 +540,7 @@ class HomeAssistantBLEInterface(MeshInterface):
             self._send_task.cancel()
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
+        self._report_unsent()
         if self.client:
             try:
                 if self.client.is_connected:
@@ -485,7 +556,7 @@ class HomeAssistantBLEInterface(MeshInterface):
         if self._hass and self._hass.loop.is_running():
             asyncio.run_coroutine_threadsafe(self.async_close(), self._hass.loop)
         else:
-            self._connected = False
+            self._link_up = False
             self.client = None
             if hasattr(self, "_disconnected"):
                 self._disconnected()
@@ -558,6 +629,7 @@ class MeshtasticConnection:
         self._message_callbacks: list[Callable] = []
         self._node_update_callbacks: list[Callable] = []
         self._connection_change_callbacks: list[Callable] = []
+        self._unsent_callbacks: list[Callable] = []
         self._pubsub_listeners: list[Any] = []
 
     @property
@@ -618,6 +690,23 @@ class MeshtasticConnection:
             return dict(self._interface.metadata or {})
         except Exception:  # noqa: BLE001
             return {}
+
+    def register_unsent_callback(self, callback: Callable) -> Callable:
+        """Register a callback for packet IDs lost when the link dropped. Returns unsubscribe callable."""
+        self._unsent_callbacks.append(callback)
+        return lambda: self._unsent_callbacks.remove(callback)
+
+    def _async_dispatch_unsent(self, packet_ids: list[int]) -> None:
+        """Dispatch lost packet IDs to callbacks (runs on HA event loop)."""
+        _LOGGER.warning(
+            "%d outgoing packet(s) were not sent before the radio link dropped",
+            len(packet_ids),
+        )
+        for cb in self._unsent_callbacks:
+            try:
+                cb(packet_ids)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Error in unsent packet callback")
 
     def register_message_callback(self, callback: Callable) -> Callable:
         """Register a callback for received messages. Returns unsubscribe callable."""
@@ -1258,6 +1347,7 @@ class MeshtasticConnection:
                 self._ble_address,
                 pin=self._ble_pin,
             )
+            ble_iface.on_unsent = self._async_dispatch_unsent
             await ble_iface.async_connect()
             new_iface = ble_iface
         else:
@@ -1468,7 +1558,7 @@ class MeshtasticConnection:
             if iface is None:
                 return False
             if isinstance(iface, HomeAssistantBLEInterface):
-                return bool(iface._connected and iface.client and iface.client.is_connected)
+                return bool(iface._link_up and iface.client and iface.client.is_connected)
             if hasattr(iface, "_isConnected") and not iface._isConnected:
                 return False
             if hasattr(iface, "isConnected"):

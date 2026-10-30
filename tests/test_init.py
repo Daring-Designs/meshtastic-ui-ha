@@ -13,11 +13,14 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.meshtastic_ui import (
+    _async_update_listener,
+    _connection_settings,
     _create_connection,
     _extract_node_data,
     _handle_delivery_ack,
     _handle_text_message,
     _handle_traceroute,
+    _handle_unsent_packets,
     _handle_waypoint,
     _num_to_id,
     async_setup_entry,
@@ -26,7 +29,9 @@ from custom_components.meshtastic_ui import (
 from custom_components.meshtastic_ui.connection import ConnectionType
 from custom_components.meshtastic_ui.const import (
     CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
+    CONF_ENABLE_BLUETOOTH,
     DOMAIN,
     SIGNAL_DELIVERY_STATUS,
     SIGNAL_NEW_MESSAGE,
@@ -382,4 +387,73 @@ class TestBleSetup:
                 assert conn.ble_address == "AA:BB:CC:DD:EE:FF"
             finally:
                 await async_unload_entry(hass, entry)
+
+
+class TestUpdateListener:
+    """Entry updates reload only when connection settings change."""
+
+    def _setup(self, hass: HomeAssistant, **options) -> MockConfigEntry:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                CONF_CONNECTION_TYPE: "ble",
+                CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+                CONF_BLE_PIN: "123456",
+            },
+            options=options,
+        )
+        entry.add_to_hass(hass)
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {"connection_settings": _connection_settings(entry)}
+            }
+        }
+        return entry
+
+    async def test_unrelated_update_does_not_reload(self, hass: HomeAssistant):
+        entry = self._setup(hass)
+        hass.config_entries.async_update_entry(
+            entry, unique_id="!aabbccdd", options={CONF_ENABLE_BLUETOOTH: False}
+        )
+        with patch.object(
+            hass.config_entries, "async_reload", new_callable=AsyncMock
+        ) as reload:
+            await _async_update_listener(hass, entry)
+        reload.assert_not_called()
+
+    async def test_pin_option_change_reloads(self, hass: HomeAssistant):
+        entry = self._setup(hass)
+        hass.config_entries.async_update_entry(entry, options={CONF_BLE_PIN: "654321"})
+        with patch.object(
+            hass.config_entries, "async_reload", new_callable=AsyncMock
+        ) as reload:
+            await _async_update_listener(hass, entry)
+        reload.assert_awaited_once_with(entry.entry_id)
+
+    def test_options_pin_overrides_data_pin(self, hass: HomeAssistant):
+        entry = self._setup(hass, **{CONF_BLE_PIN: "654321"})
+        assert _connection_settings(entry)[CONF_BLE_PIN] == "654321"
+
+
+class TestHandleUnsentPackets:
+    """Messages lost when the link drops are marked failed right away."""
+
+    async def test_marks_tracked_message_failed(self, hass: HomeAssistant):
+        store = MagicMock()
+        hass.data[DOMAIN] = {
+            "entries": {
+                "e1": {"store": store, "pending_acks": {123: {"text": "Ping", "_ts": 0}}}
+            }
+        }
+        events = []
+        async_dispatcher_connect(hass, SIGNAL_DELIVERY_STATUS, events.append)
+
+        _handle_unsent_packets(hass, "e1", [123, 999])
+        await hass.async_block_till_done()
+
+        store.update_message_status.assert_called_once_with(123, "failed", "RADIO_DISCONNECTED")
+        assert hass.data[DOMAIN]["entries"]["e1"]["pending_acks"] == {}
+        assert len(events) == 1
+        assert events[0]["status"] == "failed"
+        assert events[0]["packet_id"] == 123
 

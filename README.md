@@ -152,6 +152,7 @@ Storage is isolated per entry, so dashboards and history never bleed between rad
 
 - Home Assistant 2024.1+
 - A Meshtastic radio accessible via TCP, Serial, or Bluetooth (BLE)
+- For BLE: a Bluetooth adapter on the Home Assistant host. The radio has to be paired with a PIN through BlueZ, so radios that HA only reaches through an ESPHome Bluetooth proxy won't connect.
 - The `meshtastic` Python package (installed automatically as a dependency)
 
 ## Installation

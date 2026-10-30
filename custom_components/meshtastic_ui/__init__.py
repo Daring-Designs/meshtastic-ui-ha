@@ -110,7 +110,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ts_store = TimeSeriesStore(hass, entry.entry_id, migrate_legacy=is_first_entry)
 
     # Create the radio connection.
-    connection = _create_connection(hass, entry.data)
+    connection_settings = _connection_settings(entry)
+    connection = _create_connection(hass, connection_settings)
 
     entry_data: dict[str, Any] = {
         "entry_id": entry.entry_id,
@@ -119,6 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "store": store,
         "ts_store": ts_store,
         "connection": connection,
+        "connection_settings": connection_settings,
         "unsub_callbacks": [],
         "pending_acks": {},  # packet_id -> message info for delivery tracking.
         "nodeinfo_cooldowns": {},  # node_id -> last request timestamp
@@ -238,8 +240,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
+    """Reload only when a setting the radio connection depends on changes.
+
+    Entry updates also come from title/unique_id changes and options that
+    don't touch the link. Reloading on those would drop the radio, and on BLE
+    a reconnect can mean pairing again.
+    """
+    entry_data = _get_entry_data(hass, entry.entry_id)
+    if entry_data is not None and entry_data.get(
+        "connection_settings"
+    ) == _connection_settings(entry):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+_CONNECTION_KEYS = (
+    CONF_CONNECTION_TYPE,
+    CONF_TCP_HOSTNAME,
+    CONF_TCP_PORT,
+    CONF_SERIAL_DEV_PATH,
+    CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
+)
+
+
+def _connection_settings(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the settings the radio connection is built from.
+
+    The BLE PIN can be changed in the options flow, which takes precedence
+    over the PIN entered during setup.
+    """
+    settings = {k: entry.data[k] for k in _CONNECTION_KEYS if k in entry.data}
+    if CONF_BLE_PIN in entry.options:
+        settings[CONF_BLE_PIN] = entry.options[CONF_BLE_PIN]
+    return settings
 
 
 async def _migrate_legacy_entity_ids(hass: HomeAssistant, entry_id: str) -> None:
@@ -522,6 +556,37 @@ def _register_radio_callbacks(
     unsub_callbacks.append(
         connection.register_connection_change_callback(_on_connection_state_change)
     )
+    unsub_callbacks.append(
+        connection.register_unsent_callback(
+            lambda packet_ids: _handle_unsent_packets(hass, entry_id, packet_ids)
+        )
+    )
+
+
+def _handle_unsent_packets(
+    hass: HomeAssistant, entry_id: str, packet_ids: list[int]
+) -> None:
+    """Mark messages that never reached the radio as failed."""
+    ed = _get_entry_data(hass, entry_id)
+    if ed is None:
+        return
+    pending = ed.get("pending_acks", {})
+    for packet_id in packet_ids:
+        if packet_id not in pending:
+            continue  # not a tracked message (e.g. traceroute or admin packet)
+        msg_info = pending.pop(packet_id)
+        ed["store"].update_message_status(packet_id, "failed", "RADIO_DISCONNECTED")
+        async_dispatcher_send(
+            hass,
+            SIGNAL_DELIVERY_STATUS,
+            {
+                "entry_id": entry_id,
+                "packet_id": packet_id,
+                "status": "failed",
+                "error": "RADIO_DISCONNECTED",
+                **msg_info,
+            },
+        )
 
 
 @callback

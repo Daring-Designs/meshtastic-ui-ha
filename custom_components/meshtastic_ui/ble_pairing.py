@@ -41,6 +41,24 @@ def _clean_mac(address: str) -> str:
     return address.strip().upper().replace(":", "_").replace("-", "_")
 
 
+_BLUEZ_ADAPTER_RE = re.compile(r"^/org/bluez/(hci\d+)/")
+
+
+def bluez_adapter_from_ble_device(ble_device: Any) -> str | None:
+    """Return the local BlueZ adapter (e.g. "hci0") a BLEDevice was seen on.
+
+    Devices seen by an adapter on the Home Assistant host carry a BlueZ D-Bus
+    object path in ``details``. Devices reached through an ESPHome Bluetooth
+    proxy do not, and cannot be paired through BlueZ.
+    """
+    details = getattr(ble_device, "details", None)
+    path = details.get("path") if isinstance(details, dict) else None
+    if not isinstance(path, str):
+        return None
+    match = _BLUEZ_ADAPTER_RE.match(path)
+    return match.group(1) if match else None
+
+
 if DBUS_FAST_AVAILABLE:
     class BlueZPinAgent(ServiceInterface):
         """BlueZ Agent1 implementation for handling PIN / passkey pairing requests."""
