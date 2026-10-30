@@ -249,6 +249,7 @@ class TestBleConnection:
     async def test_reconnect_pubsub_listener(self):
         """Test connection.lost pubsub event transitions BLE connection to RECONNECTING."""
         hass = MagicMock()
+        hass.loop.is_closed.return_value = False
         conn = MeshtasticConnection(
             hass, ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
         )
@@ -430,6 +431,7 @@ class TestBleConnection:
     def test_on_receive_handles_none_decoded(self):
         """Test _on_receive handles packets with decoded=None without crashing."""
         hass = MagicMock()
+        hass.loop.is_closed.return_value = False
         conn = MeshtasticConnection(
             hass, ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
         )
@@ -495,6 +497,40 @@ class TestBleConnection:
         assert not ble_iface._link_up
         assert ble_iface._send_task.done()
         assert ble_iface._heartbeat_task.done()
+
+    def test_packet_after_loop_closed_is_dropped(self):
+        """A packet delivered after HA closed its loop during shutdown doesn't raise."""
+        hass = MagicMock()
+        hass.loop.is_closed.return_value = True
+        conn = connection_mod.MeshtasticConnection(
+            hass, connection_mod.ConnectionType.TCP, hostname="radio.local"
+        )
+        conn._call_on_loop(conn._async_dispatch_message, {})
+        hass.loop.call_soon_threadsafe.assert_not_called()
+
+        hass.loop.is_closed.return_value = False
+        hass.loop.call_soon_threadsafe.side_effect = RuntimeError("Event loop is closed")
+        conn._call_on_loop(conn._async_dispatch_message, {})  # must not raise
+
+    async def test_ble_heartbeats_are_not_identical(self, monkeypatch):
+        """The firmware drops a repeated ToRadio write, so each heartbeat must differ."""
+        import asyncio
+        hass = MagicMock()
+        hass.loop.is_running.return_value = False
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface._link_up = True
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        ble_iface.client = mock_client
+        monkeypatch.setattr(connection_mod, "BLE_HEARTBEAT_INTERVAL", 0)
+
+        task = asyncio.create_task(ble_iface._heartbeat_loop())
+        while ble_iface._outgoing_queue.qsize() < 3:
+            await asyncio.sleep(0)
+        task.cancel()
+
+        sent = [ble_iface._outgoing_queue.get_nowait() for _ in range(3)]
+        assert len(set(sent)) == 3
 
     async def test_force_reconnect_debounces_rapid_calls(self):
         """Test that async_force_reconnect ignores duplicate calls within 8 seconds."""

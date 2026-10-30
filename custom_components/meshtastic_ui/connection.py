@@ -51,6 +51,7 @@ MAX_RECONNECT_DELAY = 300  # 5 minutes
 WATCHDOG_INTERVAL = 60    # seconds between liveness checks
 WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
 WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
+BLE_HEARTBEAT_INTERVAL = 25  # seconds between BLE heartbeats
 
 
 def _is_repeated(field: Any) -> bool:
@@ -328,7 +329,7 @@ class HomeAssistantBLEInterface(MeshInterface):
             self._send_loop(), f"meshtastic_ble_send_{self._address}"
         )
 
-        # Start background heartbeat & proactive drain loop
+        # Start background heartbeat loop
         self._heartbeat_task = self._create_bg_task(
             self._heartbeat_loop(), f"meshtastic_ble_heartbeat_{self._address}"
         )
@@ -480,29 +481,24 @@ class HomeAssistantBLEInterface(MeshInterface):
                 break
 
     async def _heartbeat_loop(self) -> None:
-        """Periodic heartbeat and drain loop to keep ESP32 BLE session active."""
-        interval_counter = 0
+        """Send a periodic heartbeat to keep the ESP32 BLE session active.
+
+        Each heartbeat write is followed by a FROMRADIO drain in the send loop,
+        which also picks up packets whose FROMNUM notify was missed.
+        """
+        nonce = 0
         while self._link_up and self.client and self.client.is_connected:
             try:
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(BLE_HEARTBEAT_INTERVAL)
                 if not self._link_up or not self.client or not self.client.is_connected:
                     break
-                interval_counter += 5
-                # Proactively drain FROMRADIO in case a FROMNUM notify was dropped by BlueZ
-                self._create_bg_task(
-                    self._read_from_radio(max_empty_retries=1),
-                    f"meshtastic_ble_read_{self._address}",
-                )
-                # Send heartbeat every 25s so firmware connection supervision timer does not expire
-                if interval_counter >= 25:
-                    interval_counter = 0
-                    try:
-                        from meshtastic import mesh_pb2
-                        p = mesh_pb2.ToRadio()
-                        p.heartbeat.CopyFrom(mesh_pb2.Heartbeat())
-                        self._sendToRadioImpl(p)
-                    except Exception as hb_err:
-                        _LOGGER.debug("BLE heartbeat queue error: %s", hb_err)
+                # The firmware drops a ToRadio write identical to the previous
+                # one, so vary the nonce or every heartbeat after the first is lost.
+                nonce = (nonce + 1) & 0xFFFFFFFF
+                from meshtastic import mesh_pb2
+                p = mesh_pb2.ToRadio()
+                p.heartbeat.nonce = nonce
+                self._sendToRadioImpl(p)
             except asyncio.CancelledError:
                 break
             except Exception as err:
@@ -1433,31 +1429,23 @@ class MeshtasticConnection:
                 decoded.get("portnum", "?"),
                 packet.get("fromId", "?"),
             )
-            self._hass.loop.call_soon_threadsafe(
-                self._async_dispatch_message, packet
-            )
+            self._call_on_loop(self._async_dispatch_message, packet)
 
         def _on_connection_established(interface: Any, topic: Any = None) -> None:
             if interface is not self._interface:
                 return
-            self._hass.loop.call_soon_threadsafe(
-                self._async_handle_connected
-            )
+            self._call_on_loop(self._async_handle_connected)
 
         def _on_connection_lost(interface: Any, topic: Any = None) -> None:
             if interface is not self._interface:
                 return
-            self._hass.loop.call_soon_threadsafe(
-                self._async_handle_disconnected
-            )
+            self._call_on_loop(self._async_handle_disconnected)
 
         def _on_node_updated(node: dict, interface: Any = None) -> None:
             if interface is not None and interface is not self._interface:
                 return
             self._last_activity_time = time.monotonic()
-            self._hass.loop.call_soon_threadsafe(
-                self._async_dispatch_node_update, node
-            )
+            self._call_on_loop(self._async_dispatch_node_update, node)
 
         # Store (callback, topic) tuples for cleanup on disconnect/reconnect.
         topics = [
@@ -1469,6 +1457,19 @@ class MeshtasticConnection:
         for callback_fn, topic in topics:
             pub.subscribe(callback_fn, topic)
             self._pubsub_listeners.append((callback_fn, topic))
+
+    def _call_on_loop(self, func: Callable, *args: Any) -> None:
+        """Schedule func on the HA event loop from a meshtastic worker thread.
+
+        The radio can deliver a packet after HA has closed its loop during
+        shutdown; drop it then instead of raising in the meshtastic thread.
+        """
+        if self._hass.loop.is_closed():
+            return
+        try:
+            self._hass.loop.call_soon_threadsafe(func, *args)
+        except RuntimeError:
+            pass  # loop closed between the check and the call
 
     def _async_dispatch_message(self, packet: dict) -> None:
         """Dispatch a received packet to callbacks (runs on HA event loop)."""
