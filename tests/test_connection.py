@@ -595,3 +595,18 @@ class TestBleConnection:
         assert reported == [111, 222]
         assert ble_iface._outgoing_queue.empty()
         assert ble_iface._in_flight is None
+
+    async def test_force_reconnect_leaves_running_attempt_alone(self):
+        """A reconnect request while a connect attempt is running doesn't cancel it."""
+        hass = MagicMock()
+        conn = connection_mod.MeshtasticConnection(
+            hass, connection_mod.ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
+        )
+        conn._state = connection_mod.ConnectionState.RECONNECTING
+        conn._attempt_in_progress = True
+        reconnect_task = MagicMock()
+        conn._reconnect_task = reconnect_task
+
+        await conn.async_force_reconnect()
+
+        reconnect_task.cancel.assert_not_called()

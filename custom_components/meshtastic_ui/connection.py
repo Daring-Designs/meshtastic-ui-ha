@@ -624,6 +624,7 @@ class MeshtasticConnection:
         self._reconnect_task: asyncio.Task | None = None
         self._reconnect_gen: int = 0  # incremented each time a new loop is started
         self._watchdog_task: asyncio.Task | None = None
+        self._attempt_in_progress = False
         self._last_activity_time: float = 0.0
 
         self._message_callbacks: list[Callable] = []
@@ -794,6 +795,12 @@ class MeshtasticConnection:
         including when the state is stuck at CONNECTED but the radio is
         silently unresponsive.
         """
+        if self._attempt_in_progress:
+            _LOGGER.info(
+                "Connection attempt already in progress, ignoring reconnect request"
+            )
+            return
+
         now = time.monotonic()
         if (
             self._state in (ConnectionState.CONNECTING, ConnectionState.RECONNECTING)
@@ -1339,21 +1346,27 @@ class MeshtasticConnection:
 
         is_custom_factory = getattr(self._create_interface, "__func__", None) is not MeshtasticConnection._create_interface
 
-        if self._connection_type == ConnectionType.BLE and not is_custom_factory:
-            if not self._ble_address:
-                raise ValueError("BLE address not configured")
-            ble_iface = HomeAssistantBLEInterface(
-                self._hass,
-                self._ble_address,
-                pin=self._ble_pin,
-            )
-            ble_iface.on_unsent = self._async_dispatch_unsent
-            await ble_iface.async_connect()
-            new_iface = ble_iface
-        else:
-            new_iface = await self._hass.async_add_executor_job(
-                self._safe_create_interface, gen
-            )
+        # Lets async_force_reconnect leave a running attempt alone; BLE
+        # connects can take 20s+ and cancelling them only delays things.
+        self._attempt_in_progress = True
+        try:
+            if self._connection_type == ConnectionType.BLE and not is_custom_factory:
+                if not self._ble_address:
+                    raise ValueError("BLE address not configured")
+                ble_iface = HomeAssistantBLEInterface(
+                    self._hass,
+                    self._ble_address,
+                    pin=self._ble_pin,
+                )
+                ble_iface.on_unsent = self._async_dispatch_unsent
+                await ble_iface.async_connect()
+                new_iface = ble_iface
+            else:
+                new_iface = await self._hass.async_add_executor_job(
+                    self._safe_create_interface, gen
+                )
+        finally:
+            self._attempt_in_progress = False
 
         if (
             self._state not in (ConnectionState.CONNECTING, ConnectionState.RECONNECTING)
