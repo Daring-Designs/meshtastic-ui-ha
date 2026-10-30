@@ -402,6 +402,13 @@ class MeshtasticUiPanel extends LitElement {
       await this._loadRadios();
       await this._loadGateways();
       this.requestUpdate();
+      // BLE connects and the config handshake can outlast the wait above, so
+      // keep refreshing until the radio reports its channels.
+      for (let i = 0; !isConnected && i < 10 && !this._gateways.some((g) => g.channels?.length); i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        await this._loadRadios();
+        await this._loadGateways();
+      }
     }
   }
 
@@ -427,7 +434,9 @@ class MeshtasticUiPanel extends LitElement {
           if (!gwChannels.includes(key)) gwChannels.push(key);
         }
       }
-      this._channelNames = channelNames;
+      // A disconnected or still-handshaking radio reports no channels. Keep
+      // the last known names instead of falling back to "Channel N" labels.
+      if (gwChannels.length > 0) this._channelNames = channelNames;
       const merged = [...new Set([...gwChannels, ...this._channels])];
       merged.sort((a, b) => Number(a) - Number(b));
       this._channels = merged;
