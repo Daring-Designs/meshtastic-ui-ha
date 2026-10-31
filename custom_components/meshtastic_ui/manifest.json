@@ -10,7 +10,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Daring-Designs/meshtastic-ui-ha/issues",
   "requirements": ["meshtastic>=2.5.0"],
-  "version": "1.1.4",
+  "version": "1.2.0",
   "bluetooth": [
     {
       "service_uuid": "6ba1b218-15a8-461f-9fa8-5dcae273eafd"

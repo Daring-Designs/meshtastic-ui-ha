@@ -257,7 +257,9 @@ export default {
       node_unignored: "Узел восстановлен",
       action_failed: "Действие не выполнено",
       node_removed: "Узел удалён",
-      remove_failed: "Удаление не выполнено"
+      remove_failed: "Удаление не выполнено",
+      entities_added: "Добавлено в Home Assistant",
+      entities_removed: "Удалено из Home Assistant"
     },
     time: {
       just_now: "Только что",
@@ -310,6 +312,9 @@ export default {
         request_info: "Запросить информацию",
         ignore: "Игнорировать",
         unignore: "Восстановить",
+        add_to_ha: "Добавить в Home Assistant",
+        remove_from_ha: "Убрать из Home Assistant",
+        ha_entities_hint: "Создать для этого узла устройство в Home Assistant с сущностями батареи, телеметрии и местоположения",
         remove: "Удалить"
       }
     },
@@ -355,6 +360,7 @@ export default {
     lora: {
       region: "Регион",
       modem_preset: "Пресет модема",
+      modem_preset_desc: "Все узлы сети должны использовать один пресет. Пресеты Turbo используют полосу 500 кГц и разрешены не во всех регионах (не в EU 868).",
       hop_limit: "Лимит прыжков",
       hop_limit_desc: "Максимальное число прыжков (1-7)",
       tx_power: "Мощность TX (дБм)",
@@ -384,7 +390,13 @@ export default {
         short_fast: "Короткий диапазон / Быстро",
         short_slow: "Короткий диапазон / Медленно",
         medium_fast: "Средний диапазон / Быстро",
-        medium_slow: "Средний диапазон / Медленно"
+        medium_slow: "Средний диапазон / Медленно",
+        short_turbo: "Короткий диапазон / Турбо",
+        long_turbo: "Дальний диапазон / Турбо",
+        lite_fast: "Lite / Быстро",
+        lite_slow: "Lite / Медленно",
+        narrow_fast: "Узкополосный / Быстро",
+        narrow_slow: "Узкополосный / Медленно"
       },
       regions: {
         unset: "Не задан",
@@ -926,6 +938,9 @@ export default {
       request_info: "Запросить информацию",
       ignore: "Игнорировать",
       unignore: "Восстановить",
+      add_to_ha: "Добавить в Home Assistant",
+      remove_from_ha: "Убрать из Home Assistant",
+      ha_entities_hint: "Создать для этого узла устройство в Home Assistant с сущностями батареи, телеметрии и местоположения",
       remove: "Удалить",
       remove_confirm: "Удалить узел {name} из базы данных сети?"
     }

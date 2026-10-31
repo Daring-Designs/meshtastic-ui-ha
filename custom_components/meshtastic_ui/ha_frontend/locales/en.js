@@ -257,7 +257,9 @@ export default {
       node_unignored: "Node unignored",
       action_failed: "Action failed",
       node_removed: "Node removed",
-      remove_failed: "Remove failed"
+      remove_failed: "Remove failed",
+      entities_added: "Added to Home Assistant",
+      entities_removed: "Removed from Home Assistant"
     },
     time: {
       just_now: "Just now",
@@ -310,6 +312,9 @@ export default {
         request_info: "Request Info",
         ignore: "Ignore",
         unignore: "Unignore",
+        add_to_ha: "Add to Home Assistant",
+        remove_from_ha: "Remove from Home Assistant",
+        ha_entities_hint: "Give this node a Home Assistant device with battery, telemetry and location entities",
         remove: "Remove"
       }
     },
@@ -353,6 +358,7 @@ export default {
     lora: {
       region: "Region",
       modem_preset: "Modem Preset",
+      modem_preset_desc: "All nodes on a mesh must use the same preset. Turbo presets use 500 kHz and aren't allowed in every region (not EU 868).",
       hop_limit: "Hop Limit",
       hop_limit_desc: "Max number of hops (1-7)",
       tx_power: "TX Power (dBm)",
@@ -382,7 +388,13 @@ export default {
         short_fast: "Short Range / Fast",
         short_slow: "Short Range / Slow",
         medium_fast: "Medium Range / Fast",
-        medium_slow: "Medium Range / Slow"
+        medium_slow: "Medium Range / Slow",
+        short_turbo: "Short Range / Turbo",
+        long_turbo: "Long Range / Turbo",
+        lite_fast: "Lite / Fast",
+        lite_slow: "Lite / Slow",
+        narrow_fast: "Narrow / Fast",
+        narrow_slow: "Narrow / Slow"
       },
       regions: {
         unset: "Unset",
@@ -920,6 +932,9 @@ export default {
       request_info: "Request Info",
       ignore: "Ignore",
       unignore: "Unignore",
+      add_to_ha: "Add to Home Assistant",
+      remove_from_ha: "Remove from Home Assistant",
+      ha_entities_hint: "Give this node a Home Assistant device with battery, telemetry and location entities",
       remove: "Remove",
       remove_confirm: "Remove node {name} from the mesh database?"
     }

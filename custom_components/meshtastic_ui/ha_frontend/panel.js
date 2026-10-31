@@ -75,6 +75,7 @@ class MeshtasticUiPanel extends LitElement {
       _nodes: { type: Object },
       _favoriteNodes: { type: Array },
       _ignoredNodes: { type: Array },
+      _monitoredNodes: { type: Array },
       _deliveryStatuses: { type: Object },
       _waypoints: { type: Object },
       _traceroutes: { type: Object },
@@ -114,6 +115,7 @@ class MeshtasticUiPanel extends LitElement {
     this._nodes = {};
     this._favoriteNodes = [];
     this._ignoredNodes = [];
+    this._monitoredNodes = [];
     this._deliveryStatuses = {}; // packet_id -> {status, error}
     this._waypoints = {};
     this._traceroutes = {};
@@ -462,6 +464,7 @@ class MeshtasticUiPanel extends LitElement {
       this._nodes = result.nodes || {};
       this._favoriteNodes = result.favorite_nodes || [];
       this._ignoredNodes = result.ignored_nodes || [];
+      this._monitoredNodes = result.monitored_nodes || [];
     }
   }
 
@@ -877,6 +880,16 @@ class MeshtasticUiPanel extends LitElement {
         }
       }
       if (nodesTab) nodesTab.showFeedback(result?.success ? (action === "ignore" ? t("panel.feedback.node_ignored") : t("panel.feedback.node_unignored")) : t("panel.feedback.action_failed"));
+    } else if (action === "monitor" || action === "unmonitor") {
+      const result = await this._wsCommand("meshtastic_ui/set_monitored_node", {
+        node_id: nodeId, monitored: action === "monitor",
+      });
+      if (result?.success) this._monitoredNodes = result.monitored_nodes;
+      const msg = result?.success
+        ? (action === "monitor" ? t("panel.feedback.entities_added") : t("panel.feedback.entities_removed"))
+        : t("panel.feedback.action_failed");
+      if (nodesTab) nodesTab.showFeedback(msg);
+      if (this._nodeDialogId) this._showNodeDialogFeedback(msg);
     } else if (action === "remove") {
       const result = await this._wsCommand("meshtastic_ui/node_admin", {
         node_id: nodeId, action: "remove",
@@ -1582,6 +1595,8 @@ class MeshtasticUiPanel extends LitElement {
             .nodes=${this._nodes}
             .favoriteNodes=${this._favoriteNodes}
             .ignoredNodes=${this._ignoredNodes}
+            .monitoredNodes=${this._monitoredNodes}
+            .localNodeId=${this._localNodeId}
             .pendingTraceroute=${this._pendingTraceroute}
             .pendingPosition=${this._pendingPosition}
             .pendingNodeinfo=${this._pendingNodeinfo}
@@ -1619,6 +1634,7 @@ class MeshtasticUiPanel extends LitElement {
     const node = this._nodes[nodeId] || {};
     const isFav = (this._favoriteNodes || []).includes(nodeId);
     const isIgn = (this._ignoredNodes || []).includes(nodeId);
+    const isMonitored = (this._monitoredNodes || []).includes(nodeId);
 
     const metric = (label, value, suffix = "") => {
       const display = value != null && value !== "" ? `${value}${suffix}` : "\u2014";
@@ -1756,6 +1772,11 @@ class MeshtasticUiPanel extends LitElement {
               ${this._pendingNodeinfo === nodeId
                 ? html`<span class="spinner"></span> ${t("panel.node_dialog.actions.requesting")}`
                 : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size:16px;"></ha-icon> ${t("panel.node_dialog.actions.request_info")}`}
+            </button>
+            ` : ""}
+            ${nodeId !== this._localNodeId ? html`
+            <button class="nd-btn" title=${t("panel.node_dialog.actions.ha_entities_hint")} @click=${() => onAction(isMonitored ? "unmonitor" : "monitor")}>
+              <ha-icon icon="mdi:${isMonitored ? "home-minus" : "home-plus"}" style="--mdc-icon-size:16px;"></ha-icon> ${isMonitored ? t("panel.node_dialog.actions.remove_from_ha") : t("panel.node_dialog.actions.add_to_ha")}
             </button>
             ` : ""}
             <button class="nd-btn" @click=${() => onAction(isIgn ? "unignore" : "ignore")}>

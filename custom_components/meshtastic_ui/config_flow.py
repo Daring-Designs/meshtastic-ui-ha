@@ -16,6 +16,12 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
@@ -23,6 +29,7 @@ from .const import (
     CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
     CONF_ENABLE_BLUETOOTH,
+    CONF_MONITORED_NODES,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
     CONF_TCP_PORT,
@@ -38,6 +45,7 @@ from .ble_pairing import (
     async_start_proactive_pairing,
     async_submit_pairing_pin,
 )
+from .store import normalize_node_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -232,6 +240,12 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._validated_node_id: str | None = None
         self._ble_address: str | None = None
         self._ble_title: str | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Options: which mesh nodes get Home Assistant entities."""
+        return MeshtasticUiOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Step 1: Choose connection type."""
@@ -864,63 +878,97 @@ class MeshtasticUiConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> OptionsFlow:
-        """Get the options flow for this handler."""
-        return MeshtasticUiOptionsFlowHandler(config_entry)
 
-
-class MeshtasticUiOptionsFlowHandler(OptionsFlow):
-    """Handle options flow for Meshtastic UI."""
-
-    def __init__(self, config_entry: ConfigEntry | None = None) -> None:
-        """Initialize options flow."""
-        self._config_entry = config_entry
-
-    @property
-    def _entry(self) -> ConfigEntry:
-        """Return config entry."""
-        if self._config_entry is not None:
-            return self._config_entry
-        return self.config_entry
+class MeshtasticUiOptionsFlow(OptionsFlow):
+    """Pick monitored nodes and, for BLE radios, manage Bluetooth settings."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage options."""
-        entry = self._entry
+        """Show the node multi-select plus the Bluetooth settings."""
+        entry = self.config_entry
         is_ble = entry.data.get(CONF_CONNECTION_TYPE) == "ble"
+        errors: dict[str, str] = {}
 
         if user_input is not None:
+            selected = [
+                normalize_node_id(node_id.strip())
+                for node_id in user_input.get(CONF_MONITORED_NODES, [])
+            ]
+            if not all(_NODE_ID_RE.fullmatch(node_id) for node_id in selected):
+                errors[CONF_MONITORED_NODES] = "invalid_node_id"
+
+            new_pin: str | None = None
             if is_ble and CONF_BLE_PIN in user_input:
                 new_pin = str(user_input[CONF_BLE_PIN]).strip()
                 if not _PIN_RE.fullmatch(new_pin):
-                    return self.async_show_form(
-                        step_id="init",
-                        data_schema=self._get_options_schema(is_ble),
-                        errors={CONF_BLE_PIN: "invalid_pin"},
-                    )
-                ble_addr = entry.data.get(CONF_BLE_ADDRESS)
-                if ble_addr:
-                    await async_pair_and_trust_device(ble_addr, new_pin)
-            return self.async_create_entry(title="", data=user_input)
+                    errors[CONF_BLE_PIN] = "invalid_pin"
+
+            if not errors:
+                if new_pin is not None:
+                    ble_addr = entry.data.get(CONF_BLE_ADDRESS)
+                    if ble_addr:
+                        await async_pair_and_trust_device(ble_addr, new_pin)
+                options = {
+                    **entry.options,
+                    **user_input,
+                    CONF_MONITORED_NODES: sorted({node_id.lower() for node_id in selected}),
+                }
+                if new_pin is not None:
+                    options[CONF_BLE_PIN] = new_pin
+                return self.async_create_entry(data=options)
 
         return self.async_show_form(
             step_id="init",
             data_schema=self._get_options_schema(is_ble),
+            errors=errors,
         )
 
     def _get_options_schema(self, is_ble: bool) -> vol.Schema:
-        """Construct schema for options form."""
-        entry = self._entry
+        """Construct the options form schema."""
+        entry = self.config_entry
+        entry_data = (
+            self.hass.data.get(DOMAIN, {})
+            .get("entries", {})
+            .get(entry.entry_id)
+        )
+        nodes = entry_data["store"].get_nodes() if entry_data else {}
+        local_num = entry_data["ts"].get("local_node_num") if entry_data else None
+        local_id = f"!{local_num:08x}" if local_num is not None else None
+        current = list(entry.options.get(CONF_MONITORED_NODES, []))
+
+        node_options = sorted(
+            (
+                SelectOptionDict(
+                    value=node_id,
+                    label=f"{data.get('name') or node_id} ({node_id})",
+                )
+                for node_id, data in nodes.items()
+                if node_id != local_id and _NODE_ID_RE.fullmatch(node_id)
+            ),
+            key=lambda option: option["label"].casefold(),
+        )
+        # Keep picks the store has since pruned, so saving doesn't drop them.
+        known = {option["value"] for option in node_options}
+        node_options += [
+            SelectOptionDict(value=node_id, label=node_id)
+            for node_id in current
+            if node_id not in known
+        ]
+
         current_bt = entry.options.get(
             CONF_ENABLE_BLUETOOTH,
             entry.data.get(CONF_ENABLE_BLUETOOTH, DEFAULT_ENABLE_BLUETOOTH),
         )
         schema_dict: dict[Any, Any] = {
+            vol.Optional(CONF_MONITORED_NODES, default=current): SelectSelector(
+                SelectSelectorConfig(
+                    options=node_options,
+                    multiple=True,
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(CONF_ENABLE_BLUETOOTH, default=current_bt): bool,
         }
         if is_ble:

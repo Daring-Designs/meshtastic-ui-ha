@@ -1216,6 +1216,8 @@ export class MeshNodesTab extends LitElement {
       nodes: { type: Object },
       favoriteNodes: { type: Array },
       ignoredNodes: { type: Array },
+      monitoredNodes: { type: Array },
+      localNodeId: { type: String },
       pendingTraceroute: { type: String },
       pendingPosition: { type: String },
       pendingNodeinfo: { type: String },
@@ -1227,6 +1229,8 @@ export class MeshNodesTab extends LitElement {
     this.nodes = {};
     this.favoriteNodes = [];
     this.ignoredNodes = [];
+    this.monitoredNodes = [];
+    this.localNodeId = null;
     this.pendingTraceroute = null;
     this.pendingPosition = null;
     this.pendingNodeinfo = null;
@@ -1718,6 +1722,7 @@ export class MeshNodesTab extends LitElement {
     const nodeId = this._selectedNodeId;
     const isFav = (this.favoriteNodes || []).includes(nodeId);
     const isIgn = (this.ignoredNodes || []).includes(nodeId);
+    const isMonitored = (this.monitoredNodes || []).includes(nodeId);
 
     return html`
       <div class="dialog-backdrop" @click=${this._onDialogBackdropClick}>
@@ -1812,6 +1817,11 @@ export class MeshNodesTab extends LitElement {
               ${this.pendingNodeinfo === nodeId
                 ? html`<span class="spinner"></span> ${t("nodes.actions.requesting")}`
                 : html`<ha-icon icon="mdi:card-account-details" style="--mdc-icon-size: 16px;"></ha-icon> ${t("nodes.actions.request_info")}`}
+            </button>
+            ` : ""}
+            ${nodeId !== this.localNodeId ? html`
+            <button class="action-btn secondary" title=${t("nodes.actions.ha_entities_hint")} @click=${() => this._fireNodeAction(isMonitored ? "unmonitor" : "monitor", nodeId)}>
+              <ha-icon icon="mdi:${isMonitored ? "home-minus" : "home-plus"}" style="--mdc-icon-size: 16px;"></ha-icon> ${isMonitored ? t("nodes.actions.remove_from_ha") : t("nodes.actions.add_to_ha")}
             </button>
             ` : ""}
             <button class="action-btn secondary" @click=${() => this._fireNodeAction(isIgn ? "unignore" : "ignore", nodeId)}>

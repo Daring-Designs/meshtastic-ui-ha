@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -20,14 +21,18 @@ from .const import (
     CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
     CONF_ENABLE_BLUETOOTH,
+    CONF_MONITORED_NODES,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
     CONF_TCP_PORT,
     DEFAULT_TCP_PORT,
     DOMAIN,
+    EVENT_DELIVERY_STATUS,
+    EVENT_MESSAGE_RECEIVED,
     NODEINFO_REQUEST_COOLDOWN,
     SIGNAL_CONNECTION_STATE,
     SIGNAL_DELIVERY_STATUS,
+    SIGNAL_MONITORED_NODES,
     SIGNAL_NEW_MESSAGE,
     SIGNAL_NODE_UPDATE,
     SIGNAL_TRACEROUTE_RESULT,
@@ -36,8 +41,11 @@ from .const import (
     TS_MAX_POINTS,
     TS_PERSIST_SECONDS,
 )
+from .entity import monitored_node_ids, node_device_identifier
 from .frontend import async_register_panel, async_unregister_panel
+from .services import async_setup_services
 from .store import MeshtasticUiStore, TimeSeriesStore, normalize_node_id
+from .telemetry import extract_telemetry
 from .websocket_api import async_register_websocket_api
 
 _TS_SERIES_KEYS = ("airtimeTx", "battery", "channelUtil", "packetRx", "packetTx")
@@ -52,7 +60,7 @@ _PORTNUM_MAP = {
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor", "switch"]
+PLATFORMS = ["binary_sensor", "device_tracker", "sensor", "switch"]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -63,6 +71,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Backwards-compat: older code paths read hass.data[DOMAIN]["entries"].
     if "entries" not in hass.data[DOMAIN]:
         hass.data[DOMAIN]["entries"] = {}
+    async_setup_services(hass)
     return True
 
 
@@ -124,6 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unsub_callbacks": [],
         "pending_acks": {},  # packet_id -> message info for delivery tracking.
         "nodeinfo_cooldowns": {},  # node_id -> last request timestamp
+        "monitored_nodes": monitored_node_ids(entry),
         "local_stats": {},
         "ts": {
             "data": {k: deque(maxlen=TS_MAX_POINTS) for k in _TS_SERIES_KEYS},
@@ -148,6 +158,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if key in saved_ts.get("packetTypes", {}):
                 vals = saved_ts["packetTypes"][key]
                 ts["packetTypes"][key] = deque(vals, maxlen=TS_MAX_POINTS)
+
+    # The radio itself is a device; monitored nodes hang off it (via_device).
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="Meshtastic",
+    )
 
     # Register radio callbacks (closes over entry_id so signals stay scoped).
     _register_radio_callbacks(hass, entry.entry_id, store, connection)
@@ -190,6 +208,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for packet_id in stale:
             msg_info = pending.pop(packet_id)
             ed["store"].update_message_status(packet_id, "timeout")
+            _fire_delivery_event(hass, entry_id, packet_id, "timeout", None, msg_info)
             async_dispatcher_send(
                 hass,
                 SIGNAL_DELIVERY_STATUS,
@@ -236,22 +255,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Let users delete a monitored node's device; the radio stays."""
+    prefix = f"{entry.entry_id}_"
+    for domain, identifier in device_entry.identifiers:
+        if domain != DOMAIN:
+            continue
+        if identifier == entry.entry_id:
+            return False
+        if identifier.startswith(prefix):
+            node_id = identifier[len(prefix):]
+            remaining = [
+                node
+                for node in entry.options.get(CONF_MONITORED_NODES, [])
+                if normalize_node_id(node) != node_id
+            ]
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, CONF_MONITORED_NODES: remaining}
+            )
     return True
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload only when a setting the radio connection depends on changes.
+    """Apply an entry update; reload only when the radio link settings change.
 
     Entry updates also come from title/unique_id changes and options that
-    don't touch the link. Reloading on those would drop the radio, and on BLE
-    a reconnect can mean pairing again.
+    don't touch the link (the monitored-node list, Bluetooth discovery).
+    Reloading on those would drop the radio, and on BLE a reconnect can mean
+    pairing again. A changed monitored-node list is applied in place: dropped
+    nodes lose their device (and with it every entity); platforms add
+    entities for newly picked nodes when they get the signal.
     """
     entry_data = _get_entry_data(hass, entry.entry_id)
-    if entry_data is not None and entry_data.get(
-        "connection_settings"
-    ) == _connection_settings(entry):
+    if entry_data is None:
         return
-    await hass.config_entries.async_reload(entry.entry_id)
+    if entry_data.get("connection_settings") != _connection_settings(entry):
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    new_nodes = monitored_node_ids(entry)
+    removed = entry_data.get("monitored_nodes", set()) - new_nodes
+    entry_data["monitored_nodes"] = new_nodes
+    device_registry = dr.async_get(hass)
+    for node_id in removed:
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, node_device_identifier(entry.entry_id, node_id))}
+        )
+        if device is not None:
+            device_registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
+    async_dispatcher_send(
+        hass,
+        SIGNAL_MONITORED_NODES,
+        {"entry_id": entry.entry_id, "removed": sorted(removed)},
+    )
 
 
 _CONNECTION_KEYS = (
@@ -447,15 +510,23 @@ def _register_radio_callbacks(
         if portnum == "NODEINFO_APP":
             _handle_nodeinfo(hass, entry_id, store, packet)
 
-        # Capture LocalStats from our own telemetry.
+        # Readings carried by this packet (telemetry, position) — stored
+        # for any sender so the panel and node entities stay current.
+        payload_update: dict[str, Any] = {}
+
         if portnum == "TELEMETRY_APP":
             telemetry = decoded.get("telemetry", {})
+            # Capture LocalStats from our own telemetry.
             local_stats = telemetry.get("localStats")
             if local_stats:
                 local_num = ts.get("local_node_num")
                 sender_num = packet.get("from")
                 if local_num and sender_num == local_num:
                     ed["local_stats"] = local_stats
+            payload_update.update(extract_telemetry(telemetry))
+
+        if portnum == "POSITION_APP":
+            payload_update.update(_extract_position(decoded.get("position", {})))
 
         # Track sender as a node.
         sender_id = packet.get("fromId")
@@ -464,19 +535,28 @@ def _register_radio_callbacks(
         if sender_id:
             node_update: dict[str, Any] = {
                 "_last_seen": datetime.now(timezone.utc).isoformat(),
+                **payload_update,
             }
-            if "snr" in packet:
-                node_update["snr"] = packet["snr"]
+            snr = packet.get("rxSnr", packet.get("snr"))
+            if snr is not None:
+                node_update["snr"] = snr
             if "hopStart" in packet and "hopLimit" in packet:
                 node_update["hops"] = packet["hopStart"] - packet["hopLimit"]
             elif "hopsAway" in packet:
                 node_update["hops"] = packet["hopsAway"]
-            if "rssi" in packet:
-                node_update["rssi"] = packet["rssi"]
+            rssi = packet.get("rxRssi", packet.get("rssi"))
+            if rssi is not None:
+                node_update["rssi"] = rssi
             # Reflects the latest packet's transport: flips to False the
             # moment the node is heard over RF again.
             node_update["via_mqtt"] = bool(packet.get("viaMqtt", False))
             store.update_node(sender_id, node_update)
+            if payload_update or sender_id in ed.get("monitored_nodes", ()):
+                async_dispatcher_send(
+                    hass,
+                    SIGNAL_NODE_UPDATE,
+                    {"entry_id": entry_id, "node_id": sender_id},
+                )
 
             # Auto-request node info for nameless nodes (with cooldown).
             existing = store.get_nodes().get(sender_id, {})
@@ -615,6 +695,15 @@ def _handle_text_message(
 
     # Extract reply fields.
     packet_id = packet.get("id")
+
+    # Drop replays: a message we've already received from this sender.
+    if packet_id and not store.mark_message_seen(sender_id, packet_id):
+        _LOGGER.warning(
+            "Dropped repeated message %s from %s (possible replay)",
+            packet_id,
+            sender_id,
+        )
+        return
     reply_id = decoded.get("replyId") or decoded.get("reply_id")
 
     # Hop count: hops_away = hop_start - hop_limit, or hopsAway if provided directly.
@@ -643,6 +732,35 @@ def _handle_text_message(
         message["reply_id"] = reply_id
     if hops_away is not None:
         message["hops_away"] = hops_away
+
+    # Automation trigger. Ignored nodes stay ignored here too.
+    if sender_id not in store.ignored_nodes:
+        sender = store.get_node(sender_id)
+        via_mqtt = bool(packet.get("viaMqtt", False))
+        pki_encrypted = bool(packet.get("pkiEncrypted", False))
+        hass.bus.async_fire(
+            EVENT_MESSAGE_RECEIVED,
+            {
+                "config_entry_id": entry_id,
+                "type": "channel" if is_broadcast else "dm",
+                "from": sender_id,
+                "from_name": sender.get("name"),
+                "from_short_name": sender.get("short_name"),
+                "to": to_id,
+                "channel": packet.get("channel", 0),
+                "message": text,
+                "message_id": packet_id,
+                "reply_id": reply_id,
+                "hops_away": hops_away,
+                "snr": packet.get("rxSnr"),
+                "rssi": packet.get("rxRssi"),
+                "via_mqtt": via_mqtt,
+                # True when the DM was end-to-end encrypted to our key, which
+                # also proves the sender holds that node's private key.
+                "pki_encrypted": pki_encrypted,
+                "authenticated": not is_broadcast and pki_encrypted and not via_mqtt,
+            },
+        )
 
     if is_broadcast:
         store.add_channel_message(channel_key, message)
@@ -739,6 +857,8 @@ def _handle_delivery_ack(hass: HomeAssistant, entry_id: str, packet: dict) -> No
     # Count outgoing packets for time-series.
     ed["ts"]["accumulators"]["packetTx"] += 1
 
+    _fire_delivery_event(hass, entry_id, request_id, status, error_reason, msg_info)
+
     async_dispatcher_send(
         hass,
         SIGNAL_DELIVERY_STATUS,
@@ -748,6 +868,30 @@ def _handle_delivery_ack(hass: HomeAssistant, entry_id: str, packet: dict) -> No
             "status": status,
             "error": error_reason,
             **msg_info,
+        },
+    )
+
+
+@callback
+def _fire_delivery_event(
+    hass: HomeAssistant,
+    entry_id: str,
+    packet_id: int,
+    status: str,
+    error: str | None,
+    msg_info: dict[str, Any],
+) -> None:
+    """Fire the delivery-status automation event for an outgoing message."""
+    hass.bus.async_fire(
+        EVENT_DELIVERY_STATUS,
+        {
+            "config_entry_id": entry_id,
+            "packet_id": packet_id,
+            "status": status,
+            "error": error,
+            "to": msg_info.get("to"),
+            "channel": msg_info.get("channel"),
+            "message": msg_info.get("text"),
         },
     )
 
@@ -915,6 +1059,15 @@ def _sync_nodes_from_radio(
         if node_num is not None:
             ts["local_node_num"] = node_num
             _migrate_entry_unique_id(hass, entry_id, node_num)
+            device_registry = dr.async_get(hass)
+            device = device_registry.async_get_device(identifiers={(DOMAIN, entry_id)})
+            if device is not None:
+                device_registry.async_update_device(
+                    device.id,
+                    model=my_info.get("user", {}).get("hwModel"),
+                    serial_number=_num_to_id(node_num),
+                    sw_version=connection.metadata.get("firmwareVersion"),
+                )
         metrics = my_info.get("deviceMetrics", {})
         if metrics.get("channelUtilization") is not None:
             ts["snapshots"]["channelUtil"] = metrics["channelUtilization"]
@@ -979,18 +1132,8 @@ def _extract_node_data(node: dict) -> dict[str, Any]:
     if position.get("altitude") is not None:
         data["altitude"] = position["altitude"]
 
-    # Device metrics.
-    metrics = node.get("deviceMetrics", {})
-    if metrics.get("batteryLevel") is not None:
-        data["battery"] = metrics["batteryLevel"]
-    if metrics.get("voltage") is not None:
-        data["voltage"] = metrics["voltage"]
-    if metrics.get("channelUtilization") is not None:
-        data["channel_utilization"] = metrics["channelUtilization"]
-    if metrics.get("airUtilTx") is not None:
-        data["air_util_tx"] = metrics["airUtilTx"]
-    if metrics.get("uptimeSeconds") is not None:
-        data["uptime"] = metrics["uptimeSeconds"]
+    # Device, environment, air quality and power metrics.
+    data.update(extract_telemetry(node))
 
     # SNR / hops.
     if node.get("snr") is not None:
@@ -1007,6 +1150,26 @@ def _extract_node_data(node: dict) -> dict[str, Any]:
         except (OSError, ValueError):
             pass
 
+    return data
+
+
+def _extract_position(position: dict[str, Any]) -> dict[str, Any]:
+    """Return latitude/longitude/altitude from a POSITION_APP payload.
+
+    The library adds float latitude/longitude next to the raw integer
+    fields; fall back to the integers. A 0/0 position means "no fix".
+    """
+    latitude = position.get("latitude")
+    longitude = position.get("longitude")
+    if latitude is None and position.get("latitudeI") is not None:
+        latitude = position["latitudeI"] / 1e7
+    if longitude is None and position.get("longitudeI") is not None:
+        longitude = position["longitudeI"] / 1e7
+    if latitude is None or longitude is None or (latitude == 0 and longitude == 0):
+        return {}
+    data: dict[str, Any] = {"latitude": latitude, "longitude": longitude}
+    if position.get("altitude") is not None:
+        data["altitude"] = position["altitude"]
     return data
 
 

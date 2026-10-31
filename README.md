@@ -104,12 +104,100 @@ Complete radio configuration UI matching the Meshtastic web app. All changes are
 - Reset Node Database
 - Reboot OTA
 
-### Sensors
+### Home Assistant Entities
 
-Two sensor entities are created automatically:
+Each radio is a device in Home Assistant with:
 
-- `sensor.meshtastic_ui_messages_today` — messages received today
-- `sensor.meshtastic_ui_active_nodes` — nodes seen in the last hour
+- **Messages Today** and **Active Nodes** sensors
+- **Radio connected** — a connectivity binary sensor, on while the link to the radio is up
+- **Notifications** — a switch for the panel's push notifications
+- The radio's own battery, voltage, channel utilization, airtime and uptime, plus any environment sensors attached to it
+
+**Other nodes on the mesh get entities only when you pick them.** A busy mesh has hundreds of nodes, so nothing is created for them by default. To add one, open it in the Nodes tab and click **Add to Home Assistant**, or go to **Settings → Devices & services → Meshtastic UI → Configure** and choose nodes from the list. Each picked node becomes its own device, linked to the radio that hears it, with:
+
+- Device metrics: battery, voltage, channel utilization, airtime, uptime
+- Link quality as your radio hears it: SNR, RSSI, hops away, last heard
+- Environment metrics: temperature, humidity, pressure, gas resistance, IAQ, light (lux, white, IR, UV), wind, rainfall, soil moisture and temperature, weight, distance, radiation
+- Air quality: PM1.0, PM2.5, PM10, CO₂
+- Power metrics: INA voltage and current on channels 1–3
+- A location tracker from the node's position broadcasts
+
+A sensor appears the first time the node reports that reading, so a node with no environment sensor never gets an empty temperature entity. Remote nodes send telemetry on their own schedule (often hourly on firmware 2.7). Use the `meshtastic_ui.request_telemetry` action to ask for a fresh reading.
+
+Removing a node (the same button, the Configure dialog, or deleting its device) removes its entities.
+
+### Actions
+
+All actions are in **Developer tools → Actions** under `meshtastic_ui`. Wherever an action takes a node, you can give the node ID (`!a1b2c3d4`) or its exact long or short name. If you have more than one radio, choose one with `config_entry_id`.
+
+| Action | What it does |
+| --- | --- |
+| `meshtastic_ui.send_message` | Send text to a channel (`channel`, default 0) or as a direct message (`to`). Up to 228 bytes. Returns the `packet_id`. |
+| `meshtastic_ui.send_waypoint` | Share a map waypoint, with an optional expiry in hours. |
+| `meshtastic_ui.request_telemetry` | Ask a node for `device`, `environment`, `air_quality` or `power` telemetry. Its sensors update when the answer arrives. |
+| `meshtastic_ui.request_position` | Ask a node for its current position. |
+| `meshtastic_ui.request_nodeinfo` | Ask a node for its name and hardware. |
+| `meshtastic_ui.trace_route` | Trace the hops to a node. The result shows on the panel's map. |
+
+Only admin users can run these actions from the UI. Automations and scripts can always run them. Messages sent by an action show up in the panel's chat with delivery ticks like any other.
+
+### Automation Triggers
+
+Every received text message fires a `meshtastic_ui_message_received` event. Use it with an event trigger, or pick **Device → (your radio or a node) → Message received** in the automation editor.
+
+| Event data | |
+| --- | --- |
+| `message` | The text |
+| `from`, `from_name`, `from_short_name` | Sender node ID and names |
+| `type` | `channel` or `dm` |
+| `channel` | Channel index |
+| `to` | Destination node ID (`^all` for channel messages) |
+| `pki_encrypted` | `true` for a direct message end-to-end encrypted to your radio |
+| `authenticated` | `true` for a PKI-encrypted direct message heard over LoRa (not MQTT). See the security note below |
+| `snr`, `rssi`, `hops_away`, `via_mqtt`, `message_id`, `reply_id`, `config_entry_id` | Packet details |
+
+Messages from ignored nodes don't fire the event, and neither does a message that was already received (same sender and packet ID), so a recorded message replayed over the air is dropped. Every outgoing message also fires `meshtastic_ui_delivery_status` with `status` (`delivered`, `failed` or `timeout`), `packet_id`, `to`, `channel`, `message` and `error`.
+
+The **Direct message received from this node** device trigger only fires for authenticated messages.
+
+> [!WARNING]
+> **Don't use mesh messages to control locks, doors, alarms or anything else that matters.** Meshtastic was not built to authenticate commands:
+>
+> - **Channel messages prove nothing about the sender.** Anyone in range who knows the channel key can send as any node, and the default keys are public.
+> - **`authenticated` depends on your radio's firmware.** Before 2.7.15, anyone with the channel key could forge a direct message that looked PKI-encrypted ([CVE-2025-53627](https://github.com/meshtastic/firmware/security/advisories/GHSA-377p-prwp-4hwf)). Some vendors also shipped radios with cloned keys ([CVE-2025-52464](https://nvd.nist.gov/vuln/detail/CVE-2025-52464)); those need a full wipe.
+> - **Node keys are trusted on first sight.** If your radio has never heard the real node, or has forgotten it, someone else can claim its ID with their own key. Favorite the nodes you rely on so your radio keeps their keys.
+> - **The message text is whatever the sender typed.** Don't pass it into templates or actions that do anything with it.
+>
+> Use these events for notifications, logging and replies. If you still automate something from a message, require `authenticated: true` and a specific `from`.
+
+```yaml
+automation:
+  # Push a phone notification when a node sends a direct message.
+  - alias: "Mesh: DM notification"
+    triggers:
+      - trigger: event
+        event_type: meshtastic_ui_message_received
+        event_data:
+          type: dm
+    actions:
+      - action: notify.mobile_app_my_phone
+        data:
+          title: "Mesh DM from {{ trigger.event.data.from_name or trigger.event.data.from }}"
+          message: "{{ trigger.event.data.message }}"
+
+  # Broadcast the porch weather every three hours.
+  - alias: "Mesh: weather report"
+    triggers:
+      - trigger: time_pattern
+        hours: "/3"
+    actions:
+      - action: meshtastic_ui.send_message
+        data:
+          channel: 0
+          message: >-
+            Porch {{ states('sensor.porch_temperature') }}°C,
+            {{ states('sensor.porch_humidity') }}% RH
+```
 
 ### Real-Time Updates
 
@@ -182,6 +270,7 @@ ha_frontend/                               custom_components/meshtastic_ui/
   settings.js (config panels)                store.py (persistent storage)
   modules.js  (module config panels)         config_flow.py (setup wizard)
   components.js (shared form widgets)        sensor.py (HA sensor entities)
+                                             services.py (HA actions)
   styles.js   (shared CSS)                   const.py (constants + signals)
 ```
 
