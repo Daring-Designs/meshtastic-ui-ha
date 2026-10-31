@@ -28,6 +28,7 @@ from custom_components.meshtastic_ui.websocket_api import (
     ws_node_admin,
     ws_nodes,
     ws_radios,
+    ws_reconnect,
     ws_send_message,
     ws_set_notification_prefs,
     ws_stats,
@@ -43,6 +44,7 @@ _ws_node_admin = ws_node_admin.__wrapped__
 _ws_set_notification_prefs = ws_set_notification_prefs.__wrapped__
 _ws_radios = ws_radios.__wrapped__
 _ws_disconnect = ws_disconnect.__wrapped__
+_ws_reconnect = ws_reconnect.__wrapped__
 # ws_get_timeseries is @callback (sync), not @async_response — websocket_command
 # doesn't wrap sync callbacks, so no __wrapped__ unwinding needed here.
 _ws_get_timeseries = ws_get_timeseries
@@ -639,4 +641,37 @@ class TestWsDisconnect:
         )
 
 
+class TestWsReconnect:
+    """Tests for ws_reconnect WebSocket API command."""
 
+    @pytest.mark.parametrize(("started", "in_progress"), [(True, False), (False, True)])
+    async def test_reports_attempt_already_running(
+        self, hass: HomeAssistant, started: bool, in_progress: bool
+    ):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+            unique_id="AA:BB:CC:DD:EE:FF",
+            title="Meshtastic Radio",
+        )
+        entry.add_to_hass(hass)
+        mock_conn = MagicMock()
+        mock_conn.async_force_reconnect = AsyncMock(return_value=started)
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "entry_id": entry.entry_id,
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection(is_admin=True)
+        msg = {"id": 1, "type": "meshtastic_ui/reconnect", "radio_id": entry.entry_id}
+        await _ws_reconnect(hass, ws_conn, msg)
+
+        ws_conn.send_result.assert_called_once_with(
+            1, {"success": True, "in_progress": in_progress}
+        )

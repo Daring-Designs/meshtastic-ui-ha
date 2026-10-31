@@ -315,8 +315,14 @@ class HomeAssistantBLEInterface(MeshInterface):
         self._link_up = True
         self.isConnected.set()
 
-        # Subscribe to FROMNUM notifications
-        await client.start_notify(MESHTASTIC_BLE_FROMNUM_UUID, self._on_fromnum_notify)
+        # Subscribe to FROMNUM notifications. If this fails the link is open
+        # but useless; close it, or the radio stays connected to us and stops
+        # advertising, and every later connect attempt times out.
+        try:
+            await client.start_notify(MESHTASTIC_BLE_FROMNUM_UUID, self._on_fromnum_notify)
+        except Exception:
+            await self.async_close()
+            raise
 
         # Subscribe to LOGRADIO if characteristic present
         try:
@@ -559,6 +565,19 @@ class HomeAssistantBLEInterface(MeshInterface):
                 self._disconnected()
 
 
+def _describe_connect_error(err: Exception, connection_type: Any) -> str:
+    """Turn a connect failure into a short message for the panel."""
+    text = str(err) or type(err).__name__
+    if connection_type == "ble" and (
+        isinstance(err, TimeoutError) or "TimeoutError" in text or "timed out" in text.lower()
+    ):
+        return (
+            "Radio not reachable over Bluetooth (connect timed out). It may be "
+            "out of range, connected to another device such as a phone, or off."
+        )
+    return text
+
+
 class ConnectionType(enum.StrEnum):
     """Radio connection types."""
 
@@ -624,6 +643,8 @@ class MeshtasticConnection:
         self._attempt_in_progress = False
         self._last_activity_time: float = 0.0
         self._connected_event = asyncio.Event()
+        self._last_error: str | None = None
+        self._next_retry_at: float | None = None  # time.time() of the next attempt
 
         self._message_callbacks: list[Callable] = []
         self._node_update_callbacks: list[Callable] = []
@@ -635,6 +656,23 @@ class MeshtasticConnection:
     def state(self) -> ConnectionState:
         """Return the current connection state."""
         return self._state
+
+    @property
+    def last_error(self) -> str | None:
+        """Return why the last connect attempt failed, until one succeeds."""
+        return self._last_error
+
+    @property
+    def next_retry_in(self) -> int | None:
+        """Return seconds until the next reconnect attempt, if one is scheduled."""
+        if self._next_retry_at is None:
+            return None
+        return max(0, round(self._next_retry_at - time.time()))
+
+    @property
+    def attempt_in_progress(self) -> bool:
+        """Return whether a connect attempt is running right now."""
+        return self._attempt_in_progress
 
     @property
     def connection_type(self) -> ConnectionType:
@@ -785,7 +823,7 @@ class MeshtasticConnection:
                 except Exception:  # noqa: BLE001
                     pass
 
-    async def async_force_reconnect(self) -> None:
+    async def async_force_reconnect(self) -> bool:
         """Force a full disconnect and reconnect regardless of current state.
 
         Unlike the automatic reconnect loop (which only triggers on a
@@ -797,7 +835,7 @@ class MeshtasticConnection:
             _LOGGER.info(
                 "Connection attempt already in progress, ignoring reconnect request"
             )
-            return
+            return False
 
         now = time.monotonic()
         if (
@@ -809,7 +847,7 @@ class MeshtasticConnection:
                 "Force reconnect already in progress (%.1fs elapsed), ignoring rapid duplicate request",
                 now - self._last_force_reconnect_time,
             )
-            return
+            return False
 
         self._last_force_reconnect_time = now
         _LOGGER.info("Force reconnect requested by user")
@@ -844,6 +882,7 @@ class MeshtasticConnection:
         self._reconnect_task = asyncio.ensure_future(
             self._async_reconnect_loop(initial_delay=0, gen=self._reconnect_gen)
         )
+        return True
 
     async def async_send_text(
         self,
@@ -1548,9 +1587,11 @@ class MeshtasticConnection:
         while self._state == ConnectionState.RECONNECTING and gen == self._reconnect_gen:
             if delay > 0:
                 _LOGGER.debug("Reconnecting in %d seconds...", delay)
+                self._next_retry_at = time.time() + delay
                 await asyncio.sleep(delay)
             if self._state != ConnectionState.RECONNECTING or gen != self._reconnect_gen:
                 return
+            self._next_retry_at = None
 
             # Clean up old interface.
             if self._interface is not None:
@@ -1578,6 +1619,7 @@ class MeshtasticConnection:
             except asyncio.CancelledError:
                 raise
             except Exception as err:
+                self._last_error = _describe_connect_error(err, self._connection_type)
                 next_delay = min(max(delay * 2, MIN_RECONNECT_DELAY), MAX_RECONNECT_DELAY)
                 _LOGGER.debug(
                     "Reconnect attempt failed (%s), next try in %d seconds",
@@ -1606,8 +1648,11 @@ class MeshtasticConnection:
         self._state = new_state
         if new_state == ConnectionState.CONNECTED:
             self._connected_event.set()
+            self._last_error = None
         else:
             self._connected_event.clear()
+        if new_state in (ConnectionState.CONNECTED, ConnectionState.DISCONNECTED):
+            self._next_retry_at = None
         if old_state != new_state:
             for cb in self._connection_change_callbacks:
                 try:

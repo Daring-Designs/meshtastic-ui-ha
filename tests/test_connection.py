@@ -680,3 +680,72 @@ class TestBleConnection:
 
         with pytest.raises(RuntimeError, match="Not connected"):
             await conn.async_send_text("hi")
+
+    async def test_ble_closes_link_when_setup_fails_after_connect(self, monkeypatch):
+        """A link left open after a failed setup would block every later connect."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from custom_components.meshtastic_ui import ble_pairing
+
+        hass = MagicMock()
+        device = SimpleNamespace(details={"source": "hci0"})
+        fake_bt = SimpleNamespace(async_ble_device_from_address=lambda *a, **k: device)
+        monkeypatch.setattr(connection_mod, "bluetooth", fake_bt)
+        monkeypatch.setattr(ble_pairing, "bluez_adapter_from_ble_device", lambda d: "hci0")
+        monkeypatch.setattr(ble_pairing, "async_is_device_bonded", AsyncMock(return_value=True))
+        client = MagicMock(is_connected=True)
+        client.start_notify = AsyncMock(side_effect=OSError("notify failed"))
+        client.disconnect = AsyncMock()
+        monkeypatch.setattr(
+            connection_mod, "establish_connection", AsyncMock(return_value=client)
+        )
+
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        with pytest.raises(OSError, match="notify failed"):
+            await ble_iface.async_connect()
+
+        client.disconnect.assert_awaited_once()
+        assert ble_iface.client is None
+        assert not ble_iface._link_up
+
+    async def test_failed_reconnect_reports_reason_and_next_retry(self, monkeypatch):
+        """The panel can show why connecting fails and when it retries."""
+        import asyncio
+
+        hass = MagicMock()
+        conn = connection_mod.MeshtasticConnection(
+            hass, connection_mod.ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
+        )
+        attempts = 0
+
+        async def _fail(gen):
+            nonlocal attempts
+            attempts += 1
+            raise TimeoutError("Failed to connect after 3 attempt(s): TimeoutError")
+
+        monkeypatch.setattr(conn, "_async_safe_create_interface", _fail)
+        conn._set_state(connection_mod.ConnectionState.RECONNECTING)
+        task = asyncio.ensure_future(conn._async_reconnect_loop(initial_delay=0, gen=0))
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if attempts:
+                break
+
+        assert "not reachable over Bluetooth" in conn.last_error
+        assert conn.next_retry_in is not None and conn.next_retry_in > 0
+
+        task.cancel()
+        conn._set_state(connection_mod.ConnectionState.CONNECTED)
+        assert conn.last_error is None
+        assert conn.next_retry_in is None
+
+    async def test_force_reconnect_reports_attempt_in_progress(self):
+        hass = MagicMock()
+        conn = connection_mod.MeshtasticConnection(
+            hass, connection_mod.ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
+        )
+        conn._state = connection_mod.ConnectionState.RECONNECTING
+        conn._attempt_in_progress = True
+
+        assert await conn.async_force_reconnect() is False

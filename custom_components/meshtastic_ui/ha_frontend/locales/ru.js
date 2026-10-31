@@ -797,7 +797,12 @@ export default {
       disconnect: "Отключить",
       disconnecting: "Отключение…",
       connect_title: "Подключить радио",
-      disconnect_title: "Отключить радио"
+      disconnect_title: "Отключить радио",
+      retry_now: "Повторить",
+      retry_in: "Повтор через {seconds} с",
+      attempt_running: "Подключение уже выполняется…",
+      last_error: "Последняя попытка не удалась: {error}",
+      not_reachable: "Недоступно"
     },
     metrics: {
       title: "Метрики",

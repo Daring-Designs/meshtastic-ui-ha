@@ -212,6 +212,9 @@ async def ws_radios(
             "connection_type": config.get("connection_type"),
             "address": address,
             "state": str(conn.state) if conn is not None else None,
+            "last_error": conn.last_error if conn is not None else None,
+            "next_retry_in": conn.next_retry_in if conn is not None else None,
+            "attempt_in_progress": conn.attempt_in_progress if conn is not None else False,
         })
     connection.send_result(msg["id"], {"radios": radios})
 
@@ -1231,8 +1234,11 @@ async def ws_reconnect(
         return
     conn = _get_connection(hass, msg.get("radio_id"))
     try:
-        await conn.async_force_reconnect()
-        connection.send_result(msg["id"], {"success": True})
+        started = await conn.async_force_reconnect()
+        # False: a connect attempt is already running, so the click did nothing.
+        connection.send_result(
+            msg["id"], {"success": True, "in_progress": started is False}
+        )
     except Exception:  # noqa: BLE001
         _LOGGER.exception("Force reconnect failed")
         connection.send_error(msg["id"], "reconnect_failed", "Operation failed")

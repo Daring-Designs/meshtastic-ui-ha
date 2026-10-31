@@ -141,6 +141,7 @@ class MeshtasticUiPanel extends LitElement {
     this._selectedRadioId = lsGet("meshtastic_selected_radio") || null;
     this._updateRadioUnreadSummary();
     this._wsFailCount = 0;
+    this._connectNote = "";
     this._timeSeries = null;
     this._packetTypes = null;
     this._chartWindow = parseInt(lsGet("meshtastic_chart_window"), 10) || 3600;
@@ -387,13 +388,14 @@ class MeshtasticUiPanel extends LitElement {
         this.requestUpdate();
         const payload = { type: "meshtastic_ui/disconnect" };
         if (radioId) payload.radio_id = radioId;
-        await this.hass.callWS(payload);
+        await this._callWSWithTimeout(payload);
       } else {
         this._reconnecting = true;
         this.requestUpdate();
         const payload = { type: "meshtastic_ui/reconnect" };
         if (radioId) payload.radio_id = radioId;
-        await this.hass.callWS(payload);
+        const result = await this._callWSWithTimeout(payload);
+        if (result?.in_progress) this._flashConnectNote(t("radio.connection.attempt_running"));
         const connType = (activeRadio?.connection_type || "").toLowerCase();
         if (connType === "ble") {
           await new Promise((r) => setTimeout(r, 6000));
@@ -417,6 +419,26 @@ class MeshtasticUiPanel extends LitElement {
         await this._loadGateways();
       }
     }
+  }
+
+  // A command lost across an HA restart can leave its promise pending, which
+  // would keep the connect button disabled until the page is reloaded.
+  _callWSWithTimeout(payload, ms = 20000) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${payload.type} timed out`)), ms);
+    });
+    return Promise.race([this.hass.callWS(payload), timeout]).finally(() => clearTimeout(timer));
+  }
+
+  _flashConnectNote(text) {
+    this._connectNote = text;
+    this.requestUpdate();
+    clearTimeout(this._connectNoteTimer);
+    this._connectNoteTimer = setTimeout(() => {
+      this._connectNote = "";
+      this.requestUpdate();
+    }, 8000);
   }
 
   async _handleReconnectClick(targetRadioId = null) {
@@ -1103,6 +1125,22 @@ class MeshtasticUiPanel extends LitElement {
         --mdc-icon-size: 16px;
         color: var(--secondary-text-color);
       }
+      .sub-bar-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .sub-bar-status ha-icon {
+        --mdc-icon-size: 16px;
+        color: var(--warning-color, #ff9800);
+        flex-shrink: 0;
+      }
 
       .sub-bar-conn-btn,
       .sub-bar-reconnect {
@@ -1434,23 +1472,43 @@ class MeshtasticUiPanel extends LitElement {
 
     const otherUnreadCount = this._getOtherRadiosUnreadCount();
 
-    const isBusy = this._reconnecting || this._disconnecting;
+    // The backend keeps retrying on its own; show that instead of a bare
+    // "Connect" that does nothing while an attempt is running.
+    const trying = !isConnected && ["connecting", "reconnecting"].includes(activeRadio?.state);
+    const attemptRunning = trying && activeRadio?.attempt_in_progress;
+    const isBusy = this._reconnecting || this._disconnecting || attemptRunning;
     const btnLabel = this._disconnecting
       ? html`<span class="spinner"></span> ${t("radio.connection.disconnecting")}`
-      : this._reconnecting
+      : this._reconnecting || attemptRunning
       ? html`<span class="spinner"></span> ${t("radio.connection.connecting")}`
       : isConnected
       ? html`✕ ${t("radio.connection.disconnect")}`
+      : trying
+      ? html`↻ ${t("radio.connection.retry_now")}`
       : html`▶ ${t("radio.connection.connect")}`;
 
+    const lastError = !isConnected ? activeRadio?.last_error : null;
     const btnTitle = isConnected
       ? t("radio.connection.disconnect_title")
+      : lastError
+      ? t("radio.connection.last_error", { error: lastError })
       : t("radio.connection.connect_title");
+
+    let statusNote = this._connectNote || "";
+    if (!statusNote && trying && !attemptRunning && activeRadio?.next_retry_in != null) {
+      statusNote = t("radio.connection.retry_in", { seconds: activeRadio.next_retry_in });
+    }
 
     const btnClass = `sub-bar-conn-btn ${isConnected ? "disconnect" : "connect"}`;
 
     const actionsHtml = html`
       <div class="sub-bar-actions">
+        ${statusNote || lastError ? html`
+          <span class="sub-bar-status" title=${lastError ? t("radio.connection.last_error", { error: lastError }) : ""}>
+            ${lastError ? html`<ha-icon icon="mdi:alert-circle-outline"></ha-icon>` : ""}
+            ${statusNote || t("radio.connection.not_reachable")}
+          </span>
+        ` : ""}
         ${address ? html`
           <div class="sub-bar-address" title="${connTitle}: ${address}">
             <ha-icon icon="${connIcon}"></ha-icon>
