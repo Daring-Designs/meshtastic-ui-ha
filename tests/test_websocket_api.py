@@ -8,8 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.meshtastic_ui.const import (
+    CONF_BLE_ADDRESS,
+    CONF_CONNECTION_TYPE,
     DOMAIN,
     SIGNAL_NOTIFICATION_PREFS,
     TS_MAX_POINTS,
@@ -17,22 +20,29 @@ from custom_components.meshtastic_ui.const import (
 from custom_components.meshtastic_ui.store import MeshtasticUiStore
 from custom_components.meshtastic_ui.websocket_api import (
     _downsample,
+    _format_address_last4,
+    ws_disconnect,
+    ws_gateways,
     ws_get_timeseries,
     ws_messages,
     ws_node_admin,
     ws_nodes,
+    ws_radios,
     ws_send_message,
     ws_set_notification_prefs,
     ws_stats,
 )
 
 # Unwrap @async_response / @websocket_command to get the original async funcs
+_ws_gateways = ws_gateways.__wrapped__
 _ws_messages = ws_messages.__wrapped__
 _ws_nodes = ws_nodes.__wrapped__
 _ws_stats = ws_stats.__wrapped__
 _ws_send_message = ws_send_message.__wrapped__
 _ws_node_admin = ws_node_admin.__wrapped__
 _ws_set_notification_prefs = ws_set_notification_prefs.__wrapped__
+_ws_radios = ws_radios.__wrapped__
+_ws_disconnect = ws_disconnect.__wrapped__
 # ws_get_timeseries is @callback (sync), not @async_response — websocket_command
 # doesn't wrap sync callbacks, so no __wrapped__ unwinding needed here.
 _ws_get_timeseries = ws_get_timeseries
@@ -263,6 +273,24 @@ class TestWsSendMessage:
         msgs = store.get_dm_messages("!aabbccdd")
         assert len(msgs) == 1
 
+    async def test_ble_send_failure_does_not_force_reconnect(self, hass: HomeAssistant, mock_connection: MagicMock, hass_data: dict):
+        from custom_components.meshtastic_ui.connection import ConnectionType
+
+        hass.data[DOMAIN] = hass_data
+        mock_connection._connection_type = ConnectionType.BLE
+        mock_connection.async_send_text.side_effect = TimeoutError("Timed out waiting for connection completion")
+        mock_connection.async_force_reconnect = AsyncMock()
+
+        conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/send_message", "text": "hello"}
+        await _ws_send_message(hass, conn, msg)
+
+        # Should send send_failed error without triggering force reconnect
+        conn.send_error.assert_called_once()
+        assert conn.send_error.call_args[0][1] == "send_failed"
+        mock_connection.async_force_reconnect.assert_not_called()
+
+
 
 # ---------------------------------------------------------------------------
 # ws_node_admin
@@ -350,3 +378,265 @@ class TestWsSetNotificationPrefs:
 
         conn.send_error.assert_called_once()
         assert "unauthorized" in conn.send_error.call_args[0][1]
+
+
+# ---------------------------------------------------------------------------
+# _format_address_last4
+# ---------------------------------------------------------------------------
+
+class TestFormatAddressLast4:
+    """Tests for _format_address_last4 helper."""
+
+    def test_formats_mac_addresses(self):
+        assert _format_address_last4("AA:BB:CC:DD:EE:FF") == "ee:ff"
+        assert _format_address_last4("aa:bb:cc:dd:ee:ff") == "ee:ff"
+        assert _format_address_last4("AA-BB-CC-DD-EE-FF") == "ee:ff"
+        assert _format_address_last4("aabbccddeeff") == "ee:ff"
+        assert _format_address_last4("aabb.ccdd.eeff") == "ee:ff"
+        assert _format_address_last4("  AA:BB:CC:DD:EE:FF  ") == "ee:ff"
+        assert _format_address_last4("6ba1b218-15a8-461f-9fa8-5dcae273eafd") == "ea:fd"
+        assert _format_address_last4("6BA1B218-15A8-461F-9FA8-5DCAE273EAFD") == "ea:fd"
+
+    def test_rejects_non_mac_addresses(self):
+        assert _format_address_last4(None) is None
+        assert _format_address_last4("") is None
+        assert _format_address_last4("192.168.1.100") is None
+        assert _format_address_last4("192.168.100.200") is None
+        assert _format_address_last4("100.200.123.456") is None
+        assert _format_address_last4("2001:0db8:85a3:0000:0000:8a2e:0370:7334") is None
+        assert _format_address_last4("/dev/ttyUSB0") is None
+        assert _format_address_last4("not-a-mac") is None
+        assert _format_address_last4("ZZ:ZZ:ZZ:ZZ:ZZ:ZZ") is None
+
+
+# ---------------------------------------------------------------------------
+# ws_radios
+# ---------------------------------------------------------------------------
+
+class TestWsRadios:
+    """Tests for ws_radios WebSocket API command."""
+
+    async def test_legacy_format(self, hass: HomeAssistant, hass_data: dict):
+        hass.data[DOMAIN] = hass_data
+        ws_conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/radios"}
+
+        await _ws_radios(hass, ws_conn, msg)
+
+        ws_conn.send_result.assert_called_once()
+        result = ws_conn.send_result.call_args[0][1]
+        assert "radios" in result
+        assert len(result["radios"]) == 1
+        assert result["radios"][0]["radio_id"] == "_legacy"
+
+    async def test_ble_radio(self, hass: HomeAssistant):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+            unique_id="AA:BB:CC:DD:EE:FF",
+            title="Meshtastic (AA:BB:CC:DD:EE:FF)",
+        )
+        entry.add_to_hass(hass)
+
+        mock_conn = MagicMock()
+        mock_conn.my_info = {"user": {"longName": "Test Radio", "shortName": "TRAD"}}
+        mock_conn.state = "connected"
+
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/radios"}
+
+        await _ws_radios(hass, ws_conn, msg)
+
+        ws_conn.send_result.assert_called_once()
+        result = ws_conn.send_result.call_args[0][1]
+        assert len(result["radios"]) == 1
+        radio = result["radios"][0]
+        assert radio["radio_id"] == entry.entry_id
+        assert radio["title"] == "Test Radio"
+        assert radio["name"] == "Test Radio"
+        assert radio["short_name"] == "TRAD"
+        assert radio["last4"] == "ee:ff"
+        assert radio["connection_type"] == "ble"
+        assert radio["address"] == "AA:BB:CC:DD:EE:FF"
+        assert radio["state"] == "connected"
+
+
+class TestWsGateways:
+    """Tests for ws_gateways WebSocket API command."""
+
+    async def test_gateways_ble_returns_address_and_short_name(
+        self, hass: HomeAssistant
+    ):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+            unique_id="AA:BB:CC:DD:EE:FF",
+            title="Meshtastic (AA:BB:CC:DD:EE:FF)",
+        )
+        entry.add_to_hass(hass)
+
+        mock_conn = MagicMock()
+        mock_conn.my_info = {
+            "user": {"longName": "Test Radio", "shortName": "TRAD", "hwModel": "HELTEC_V3"},
+            "num": 0x12345678,
+        }
+        mock_conn.metadata = {"firmwareVersion": "2.5.0"}
+        mock_conn.interface = None
+        mock_conn.state = "connected"
+
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "entry_id": entry.entry_id,
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/gateways", "radio_id": entry.entry_id}
+
+        await _ws_gateways(hass, ws_conn, msg)
+
+        ws_conn.send_result.assert_called_once()
+        result = ws_conn.send_result.call_args[0][1]
+        assert "gateways" in result
+        assert len(result["gateways"]) == 1
+        gw = result["gateways"][0]
+        assert gw["name"] == "Test Radio"
+        assert gw["short_name"] == "TRAD"
+        assert gw["address"] == "AA:BB:CC:DD:EE:FF"
+        assert gw["connection_type"] == "ble"
+        assert gw["state"] == "connected"
+        assert gw["node_id"] == "!12345678"
+
+    async def test_gateways_tcp_returns_ip_address(self, hass: HomeAssistant):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "tcp", "tcp_hostname": "192.0.2.1"},
+            unique_id="192.0.2.1",
+            title="Meshtastic 192.0.2.1",
+        )
+        entry.add_to_hass(hass)
+
+        mock_conn = MagicMock()
+        mock_conn.my_info = {"user": {"longName": "Router Node", "shortName": "RN"}}
+        mock_conn.metadata = {}
+        mock_conn.interface = None
+        mock_conn.state = "connected"
+
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "entry_id": entry.entry_id,
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection()
+        msg = {"id": 1, "type": "meshtastic_ui/gateways", "radio_id": entry.entry_id}
+
+        await _ws_gateways(hass, ws_conn, msg)
+
+        ws_conn.send_result.assert_called_once()
+        result = ws_conn.send_result.call_args[0][1]
+        gw = result["gateways"][0]
+        assert gw["name"] == "Router Node"
+        assert gw["short_name"] == "RN"
+        assert gw["address"] == "192.0.2.1"
+        assert gw["connection_type"] == "tcp"
+
+
+class TestWsDisconnect:
+    """Tests for ws_disconnect WebSocket API command."""
+
+    async def test_disconnect_admin_success(self, hass: HomeAssistant):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+            unique_id="AA:BB:CC:DD:EE:FF",
+            title="Meshtastic Radio",
+        )
+        entry.add_to_hass(hass)
+
+        mock_conn = MagicMock()
+        mock_conn.async_disconnect = AsyncMock()
+
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "entry_id": entry.entry_id,
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection(is_admin=True)
+        msg = {"id": 1, "type": "meshtastic_ui/disconnect", "radio_id": entry.entry_id}
+
+        await _ws_disconnect(hass, ws_conn, msg)
+
+        mock_conn.async_disconnect.assert_awaited_once()
+        ws_conn.send_result.assert_called_once_with(1, {"success": True})
+
+    async def test_disconnect_unauthorized_non_admin(self, hass: HomeAssistant):
+        ws_conn = _make_ws_connection(is_admin=False)
+        msg = {"id": 1, "type": "meshtastic_ui/disconnect"}
+
+        await _ws_disconnect(hass, ws_conn, msg)
+
+        ws_conn.send_error.assert_called_once_with(
+            1, "unauthorized", "Admin access required"
+        )
+
+    async def test_disconnect_failure_handled(self, hass: HomeAssistant):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_CONNECTION_TYPE: "tcp"},
+            unique_id="192.0.2.1",
+            title="Meshtastic TCP",
+        )
+        entry.add_to_hass(hass)
+
+        mock_conn = MagicMock()
+        mock_conn.async_disconnect = AsyncMock(side_effect=RuntimeError("GATT bus error"))
+
+        hass.data[DOMAIN] = {
+            "entries": {
+                entry.entry_id: {
+                    "entry_id": entry.entry_id,
+                    "connection": mock_conn,
+                    "config": entry.data,
+                    "title": entry.title,
+                }
+            }
+        }
+
+        ws_conn = _make_ws_connection(is_admin=True)
+        msg = {"id": 1, "type": "meshtastic_ui/disconnect", "radio_id": entry.entry_id}
+
+        await _ws_disconnect(hass, ws_conn, msg)
+
+        ws_conn.send_error.assert_called_once_with(
+            1, "disconnect_failed", "Operation failed"
+        )
+
+
+

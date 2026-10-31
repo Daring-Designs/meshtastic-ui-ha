@@ -20,6 +20,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.service import async_register_admin_service
 
+from .connection import ConnectionType
 from .const import DOMAIN, MAX_TEXT_BYTES, SIGNAL_WAYPOINT_UPDATE
 from .messaging import async_send_text_message, looks_like_link_down
 from .store import normalize_node_id
@@ -140,7 +141,10 @@ async def _run_radio_call(
     except Exception as err:
         if looks_like_link_down(err):
             # Same recovery as the panel: a fresh interface for the next try.
-            hass.async_create_task(entry_data["connection"].async_force_reconnect())
+            # BLE drops are handled by the BlueZ disconnect callback instead.
+            conn = entry_data["connection"]
+            if getattr(conn, "_connection_type", None) != ConnectionType.BLE:
+                hass.async_create_task(conn.async_force_reconnect())
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="radio_disconnected",

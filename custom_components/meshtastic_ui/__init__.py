@@ -17,7 +17,10 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .connection import ConnectionState, ConnectionType, MeshtasticConnection
 from .const import (
+    CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
+    CONF_ENABLE_BLUETOOTH,
     CONF_MONITORED_NODES,
     CONF_SERIAL_DEV_PATH,
     CONF_TCP_HOSTNAME,
@@ -116,7 +119,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ts_store = TimeSeriesStore(hass, entry.entry_id, migrate_legacy=is_first_entry)
 
     # Create the radio connection.
-    connection = _create_connection(hass, entry.data)
+    connection_settings = _connection_settings(entry)
+    connection = _create_connection(hass, connection_settings)
 
     entry_data: dict[str, Any] = {
         "entry_id": entry.entry_id,
@@ -125,6 +129,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "store": store,
         "ts_store": ts_store,
         "connection": connection,
+        "connection_settings": connection_settings,
         "unsub_callbacks": [],
         "pending_acks": {},  # packet_id -> message info for delivery tracking.
         "nodeinfo_cooldowns": {},  # node_id -> last request timestamp
@@ -249,37 +254,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up sensor platform.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
-
-
-async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply a change to the monitored-node list without reconnecting.
-
-    Dropped nodes lose their device (and with it every entity); platforms
-    add entities for newly picked nodes when they get the signal.
-    """
-    entry_data = _get_entry_data(hass, entry.entry_id)
-    if entry_data is None:
-        return
-    new_nodes = monitored_node_ids(entry)
-    removed = entry_data.get("monitored_nodes", set()) - new_nodes
-    entry_data["monitored_nodes"] = new_nodes
-    device_registry = dr.async_get(hass)
-    for node_id in removed:
-        device = device_registry.async_get_device(
-            identifiers={(DOMAIN, node_device_identifier(entry.entry_id, node_id))}
-        )
-        if device is not None:
-            device_registry.async_update_device(
-                device.id, remove_config_entry_id=entry.entry_id
-            )
-    async_dispatcher_send(
-        hass,
-        SIGNAL_MONITORED_NODES,
-        {"entry_id": entry.entry_id, "removed": sorted(removed)},
-    )
 
 
 async def async_remove_config_entry_device(
@@ -303,6 +280,63 @@ async def async_remove_config_entry_device(
                 entry, options={**entry.options, CONF_MONITORED_NODES: remaining}
             )
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Apply an entry update; reload only when the radio link settings change.
+
+    Entry updates also come from title/unique_id changes and options that
+    don't touch the link (the monitored-node list, Bluetooth discovery).
+    Reloading on those would drop the radio, and on BLE a reconnect can mean
+    pairing again. A changed monitored-node list is applied in place: dropped
+    nodes lose their device (and with it every entity); platforms add
+    entities for newly picked nodes when they get the signal.
+    """
+    entry_data = _get_entry_data(hass, entry.entry_id)
+    if entry_data is None:
+        return
+    if entry_data.get("connection_settings") != _connection_settings(entry):
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    new_nodes = monitored_node_ids(entry)
+    removed = entry_data.get("monitored_nodes", set()) - new_nodes
+    entry_data["monitored_nodes"] = new_nodes
+    device_registry = dr.async_get(hass)
+    for node_id in removed:
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, node_device_identifier(entry.entry_id, node_id))}
+        )
+        if device is not None:
+            device_registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
+    async_dispatcher_send(
+        hass,
+        SIGNAL_MONITORED_NODES,
+        {"entry_id": entry.entry_id, "removed": sorted(removed)},
+    )
+
+
+_CONNECTION_KEYS = (
+    CONF_CONNECTION_TYPE,
+    CONF_TCP_HOSTNAME,
+    CONF_TCP_PORT,
+    CONF_SERIAL_DEV_PATH,
+    CONF_BLE_ADDRESS,
+    CONF_BLE_PIN,
+)
+
+
+def _connection_settings(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the settings the radio connection is built from.
+
+    The BLE PIN can be changed in the options flow, which takes precedence
+    over the PIN entered during setup.
+    """
+    settings = {k: entry.data[k] for k in _CONNECTION_KEYS if k in entry.data}
+    if CONF_BLE_PIN in entry.options:
+        settings[CONF_BLE_PIN] = entry.options[CONF_BLE_PIN]
+    return settings
 
 
 async def _migrate_legacy_entity_ids(hass: HomeAssistant, entry_id: str) -> None:
@@ -402,6 +436,13 @@ def _create_connection(
             conn_type,
             serial_path=config_data[CONF_SERIAL_DEV_PATH],
         )
+    if conn_type == ConnectionType.BLE:
+        return MeshtasticConnection(
+            hass,
+            conn_type,
+            ble_address=config_data[CONF_BLE_ADDRESS],
+            ble_pin=config_data.get(CONF_BLE_PIN),
+        )
 
     raise ValueError(f"Unknown connection type: {conn_type}")
 
@@ -426,7 +467,7 @@ def _register_radio_callbacks(
     @callback
     def _on_packet(packet: dict) -> None:
         """Handle a received packet from the radio."""
-        decoded = packet.get("decoded", {})
+        decoded = packet.get("decoded") or {}
         portnum = decoded.get("portnum")
 
         _LOGGER.debug(
@@ -595,6 +636,37 @@ def _register_radio_callbacks(
     unsub_callbacks.append(
         connection.register_connection_change_callback(_on_connection_state_change)
     )
+    unsub_callbacks.append(
+        connection.register_unsent_callback(
+            lambda packet_ids: _handle_unsent_packets(hass, entry_id, packet_ids)
+        )
+    )
+
+
+def _handle_unsent_packets(
+    hass: HomeAssistant, entry_id: str, packet_ids: list[int]
+) -> None:
+    """Mark messages that never reached the radio as failed."""
+    ed = _get_entry_data(hass, entry_id)
+    if ed is None:
+        return
+    pending = ed.get("pending_acks", {})
+    for packet_id in packet_ids:
+        if packet_id not in pending:
+            continue  # not a tracked message (e.g. traceroute or admin packet)
+        msg_info = pending.pop(packet_id)
+        ed["store"].update_message_status(packet_id, "failed", "RADIO_DISCONNECTED")
+        async_dispatcher_send(
+            hass,
+            SIGNAL_DELIVERY_STATUS,
+            {
+                "entry_id": entry_id,
+                "packet_id": packet_id,
+                "status": "failed",
+                "error": "RADIO_DISCONNECTED",
+                **msg_info,
+            },
+        )
 
 
 @callback
@@ -602,7 +674,7 @@ def _handle_text_message(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Parse a text message packet and route to channel or DM store."""
-    decoded = packet.get("decoded", {})
+    decoded = packet.get("decoded") or {}
     text = decoded.get("text", "")
     if not text:
         return
@@ -754,8 +826,8 @@ def _handle_text_message(
 @callback
 def _handle_delivery_ack(hass: HomeAssistant, entry_id: str, packet: dict) -> None:
     """Handle a routing/ack packet to update message delivery status."""
-    decoded = packet.get("decoded", {})
-    routing = decoded.get("routing", {})
+    decoded = packet.get("decoded") or {}
+    routing = decoded.get("routing") or {}
     request_id = packet.get("requestId") or decoded.get("requestId")
 
     if not request_id:
@@ -829,8 +901,8 @@ def _handle_traceroute(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a traceroute response packet."""
-    decoded = packet.get("decoded", {})
-    traceroute = decoded.get("traceroute", {})
+    decoded = packet.get("decoded") or {}
+    traceroute = decoded.get("traceroute") or {}
 
     from_id = normalize_node_id(packet.get("fromId", ""))
     to_id = normalize_node_id(packet.get("toId", ""))
@@ -881,8 +953,8 @@ def _handle_waypoint(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a waypoint packet from the mesh."""
-    decoded = packet.get("decoded", {})
-    waypoint = decoded.get("waypoint", {})
+    decoded = packet.get("decoded") or {}
+    waypoint = decoded.get("waypoint") or {}
     if not waypoint:
         return
 
@@ -928,8 +1000,8 @@ def _handle_nodeinfo(
     hass: HomeAssistant, entry_id: str, store: MeshtasticUiStore, packet: dict
 ) -> None:
     """Handle a NODEINFO_APP packet — extract user identity and update the store."""
-    decoded = packet.get("decoded", {})
-    user = decoded.get("user", {})
+    decoded = packet.get("decoded") or {}
+    user = decoded.get("user") or {}
     if not user:
         return
 

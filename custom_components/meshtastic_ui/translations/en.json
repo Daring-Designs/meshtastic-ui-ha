@@ -24,30 +24,68 @@
           "serial_dev_path": "Device path"
         }
       },
+      "ble": {
+        "title": "Bluetooth Connection",
+        "description": "Select a discovered Meshtastic radio, scan for nearby devices, or enter a MAC address manually.",
+        "data": {
+          "ble_address": "Radio"
+        }
+      },
+      "ble_scan": {
+        "title": "Scan for Radios",
+        "description": "Select a radio found during the scan, scan again, or enter a MAC address manually.",
+        "data": {
+          "ble_address": "Radio"
+        }
+      },
+      "ble_manual": {
+        "title": "Manual Bluetooth Address",
+        "description": "Enter the Bluetooth MAC address of your Meshtastic radio (e.g. AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "ble_address": "Bluetooth MAC address"
+        }
+      },
       "zeroconf_confirm": {
         "title": "Set up Meshtastic radio",
         "description": "A Meshtastic radio was discovered on the network:\n\n**{name}**\n`{host}:{port}`\n\nDo you want to set it up?"
+      },
+      "bluetooth_confirm": {
+        "title": "Set up Meshtastic radio",
+        "description": "A Meshtastic radio was discovered via Bluetooth:\n\n**{name}**\n`{address}`\n\nDo you want to set it up?"
+      },
+      "ble_pin": {
+        "title": "Bluetooth Pairing PIN",
+        "description": "Connecting to {name} ({address})... Look at your radio's screen for the 6-digit pairing PIN. Enter the PIN shown on your screen (or 123456 if fixed PIN):",
+        "data": {
+          "ble_pin": "Pairing PIN"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on."
+      "cannot_connect": "Unable to connect to the radio. Check the address and ensure the radio is powered on.",
+      "invalid_pin": "The PIN must be a 6-digit number.",
+      "pairing_failed": "Bluetooth pairing failed. Please verify the radio is on, in range, and the PIN is correct."
     },
     "abort": {
-      "already_configured": "Meshtastic UI is already configured."
+      "already_configured": "Meshtastic UI is already configured.",
+      "bluetooth_disabled": "Bluetooth discovery is disabled in options."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Home Assistant entities",
-        "description": "Pick the mesh nodes that get their own device with battery, telemetry, signal and location entities. Your own radio always has them. Sensors appear once a node reports each reading.",
+        "title": "Meshtastic UI options",
+        "description": "Pick the mesh nodes that get their own device with battery, telemetry, signal and location entities (your own radio always has them; sensors appear once a node reports each reading), and manage Bluetooth discovery and pairing.",
         "data": {
-          "monitored_nodes": "Nodes"
+          "monitored_nodes": "Nodes",
+          "enable_bluetooth": "Enable Bluetooth discovery and scanning",
+          "ble_pin": "Bluetooth Pairing PIN"
         }
       }
     },
     "error": {
-      "invalid_node_id": "Node IDs look like !a1b2c3d4."
+      "invalid_node_id": "Node IDs look like !a1b2c3d4.",
+      "invalid_pin": "The PIN must be a 6-digit number."
     }
   },
   "entity": {
