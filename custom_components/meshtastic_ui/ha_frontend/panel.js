@@ -217,7 +217,12 @@ class MeshtasticUiPanel extends LitElement {
     this._loadData();
     // Poll backend for time-series data (collected server-side even with no UI open)
     if (!this._tsPollingId) {
-      this._tsPollingId = setInterval(() => this._loadTimeSeries(), TS_POLL_MS);
+      // Radio state rides along so the connect/disconnect button tracks
+      // drops and auto-reconnects instead of showing the state at page load.
+      this._tsPollingId = setInterval(() => {
+        this._loadTimeSeries();
+        if (!this._reconnecting && !this._disconnecting) this._loadRadios();
+      }, TS_POLL_MS);
     }
   }
 
@@ -366,18 +371,18 @@ class MeshtasticUiPanel extends LitElement {
     this.requestUpdate();
   }
 
-  async _handleConnectionToggle(targetRadioId = null) {
+  // `disconnect` is what the clicked control showed, not the cached state:
+  // the radio may have dropped or reconnected since the last poll, and a
+  // "reconnect" click must never turn into a disconnect.
+  async _handleConnectionToggle(targetRadioId = null, disconnect = false) {
     if (this._reconnecting || this._disconnecting) return;
 
     const radioId = targetRadioId || this._selectedRadioId;
     const radios = this._radios || [];
     const activeRadio = radios.find((r) => r.radio_id === radioId) || radios[0];
-    const isConnected = activeRadio
-      ? (activeRadio.state === "connected" || (!activeRadio.state && this._gateways?.some((g) => g.connected)))
-      : false;
 
     try {
-      if (isConnected) {
+      if (disconnect) {
         this._disconnecting = true;
         this.requestUpdate();
         const payload = { type: "meshtastic_ui/disconnect" };
@@ -406,7 +411,7 @@ class MeshtasticUiPanel extends LitElement {
       this.requestUpdate();
       // BLE connects and the config handshake can outlast the wait above, so
       // keep refreshing until the radio reports its channels.
-      for (let i = 0; !isConnected && i < 10 && !this._gateways.some((g) => g.channels?.length); i++) {
+      for (let i = 0; !disconnect && i < 10 && !this._gateways.some((g) => g.channels?.length); i++) {
         await new Promise((r) => setTimeout(r, 3000));
         await this._loadRadios();
         await this._loadGateways();
@@ -415,7 +420,7 @@ class MeshtasticUiPanel extends LitElement {
   }
 
   async _handleReconnectClick(targetRadioId = null) {
-    return this._handleConnectionToggle(targetRadioId);
+    return this._handleConnectionToggle(targetRadioId, false);
   }
 
   async _loadGateways() {
@@ -1455,7 +1460,7 @@ class MeshtasticUiPanel extends LitElement {
         <button
           class=${btnClass}
           ?disabled=${isBusy}
-          @click=${() => this._handleConnectionToggle()}
+          @click=${() => this._handleConnectionToggle(null, isConnected)}
           title=${btnTitle}
         >
           ${btnLabel}

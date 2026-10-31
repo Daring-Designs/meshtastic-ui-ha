@@ -52,6 +52,7 @@ WATCHDOG_INTERVAL = 60    # seconds between liveness checks
 WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
 WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
 BLE_HEARTBEAT_INTERVAL = 25  # seconds between BLE heartbeats
+SEND_RECONNECT_WAIT = 45    # seconds a send waits for a reconnect in progress
 
 
 def _is_repeated(field: Any) -> bool:
@@ -622,6 +623,7 @@ class MeshtasticConnection:
         self._watchdog_task: asyncio.Task | None = None
         self._attempt_in_progress = False
         self._last_activity_time: float = 0.0
+        self._connected_event = asyncio.Event()
 
         self._message_callbacks: list[Callable] = []
         self._node_update_callbacks: list[Callable] = []
@@ -851,6 +853,7 @@ class MeshtasticConnection:
         reply_id: int | None = None,
     ) -> int | None:
         """Send a text message via the radio. Returns the packet ID if available."""
+        await self._async_wait_for_reconnect()
         if self._interface is None:
             raise RuntimeError("Not connected to radio")
 
@@ -1583,10 +1586,28 @@ class MeshtasticConnection:
                 )
                 delay = next_delay
 
+    async def _async_wait_for_reconnect(self) -> None:
+        """Wait briefly for a reconnect in progress before sending.
+
+        A BLE link can drop every few minutes and takes 15-40s to come back.
+        Waiting turns a send made in that window into a short delay instead of
+        a failure. A user-requested disconnect is not waited on.
+        """
+        if self._state not in (ConnectionState.CONNECTING, ConnectionState.RECONNECTING):
+            return
+        try:
+            await asyncio.wait_for(self._connected_event.wait(), SEND_RECONNECT_WAIT)
+        except TimeoutError:
+            pass
+
     def _set_state(self, new_state: ConnectionState) -> None:
         """Update connection state and notify callbacks."""
         old_state = self._state
         self._state = new_state
+        if new_state == ConnectionState.CONNECTED:
+            self._connected_event.set()
+        else:
+            self._connected_event.clear()
         if old_state != new_state:
             for cb in self._connection_change_callbacks:
                 try:

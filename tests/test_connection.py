@@ -646,3 +646,37 @@ class TestBleConnection:
         await conn.async_force_reconnect()
 
         reconnect_task.cancel.assert_not_called()
+
+    async def test_send_waits_for_reconnect_in_progress(self, conn):
+        """A send during a reconnect goes out once the link is back."""
+        import asyncio
+
+        iface = conn._interface
+        conn._interface = None
+        conn._set_state(connection_mod.ConnectionState.RECONNECTING)
+        iface.sendText.return_value = MagicMock(id=42)
+
+        send = asyncio.create_task(conn.async_send_text("hi"))
+        await asyncio.sleep(0)
+        assert not send.done()
+
+        conn._interface = iface
+        conn._set_state(connection_mod.ConnectionState.CONNECTED)
+        assert await send == 42
+
+    async def test_send_after_user_disconnect_fails_at_once(self, conn, monkeypatch):
+        """A deliberate disconnect isn't waited on."""
+        monkeypatch.setattr(connection_mod, "SEND_RECONNECT_WAIT", 60)
+        conn._interface = None
+        conn._set_state(connection_mod.ConnectionState.DISCONNECTED)
+
+        with pytest.raises(RuntimeError, match="Not connected"):
+            await conn.async_send_text("hi")
+
+    async def test_send_gives_up_when_reconnect_takes_too_long(self, conn, monkeypatch):
+        monkeypatch.setattr(connection_mod, "SEND_RECONNECT_WAIT", 0.01)
+        conn._interface = None
+        conn._set_state(connection_mod.ConnectionState.RECONNECTING)
+
+        with pytest.raises(RuntimeError, match="Not connected"):
+            await conn.async_send_text("hi")
