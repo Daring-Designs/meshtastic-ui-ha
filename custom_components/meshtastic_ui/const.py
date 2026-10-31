@@ -65,6 +65,7 @@ CONF_SERIAL_DEV_PATH = "serial_dev_path"
 CONF_BLE_ADDRESS = "ble_address"
 CONF_BLE_PIN = "ble_pin"
 CONF_ENABLE_BLUETOOTH = "enable_bluetooth"
+CONF_AUTO_REBOOT_STUCK = "auto_reboot_stuck"
 DEFAULT_TCP_PORT = 4403
 DEFAULT_ENABLE_BLUETOOTH = True
 DEFAULT_BLE_PIN = "123456"

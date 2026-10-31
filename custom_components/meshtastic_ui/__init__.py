@@ -14,9 +14,11 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 
 from .connection import ConnectionState, ConnectionType, MeshtasticConnection
 from .const import (
+    CONF_AUTO_REBOOT_STUCK,
     CONF_BLE_ADDRESS,
     CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
@@ -641,6 +643,70 @@ def _register_radio_callbacks(
             lambda packet_ids: _handle_unsent_packets(hass, entry_id, packet_ids)
         )
     )
+    unsub_callbacks.append(
+        connection.register_stuck_callback(
+            lambda: _handle_stuck_radio(hass, entry_id, connection)
+        )
+    )
+
+
+def _local_node_id(hass: HomeAssistant, entry_id: str) -> str | None:
+    """Return the radio's own node ID, even if it hasn't connected since startup."""
+    ed = _get_entry_data(hass, entry_id)
+    if ed is not None and ed["ts"].get("local_node_num") is not None:
+        return _num_to_id(ed["ts"]["local_node_num"])
+    # Saved on the radio's device the last time it connected.
+    registry = dr.async_get(hass)
+    if hasattr(registry, "async_get_device_by_identifier"):  # HA 2026.10+
+        device = registry.async_get_device_by_identifier((DOMAIN, entry_id), entry_id)
+    else:
+        device = registry.async_get_device(identifiers={(DOMAIN, entry_id)})
+    return device.serial_number if device is not None else None
+
+
+def _handle_stuck_radio(
+    hass: HomeAssistant, entry_id: str, connection: MeshtasticConnection
+) -> None:
+    """Reboot a BLE radio that stopped advertising, through another radio."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or not entry.options.get(CONF_AUTO_REBOOT_STUCK, False):
+        return
+    node_id = _local_node_id(hass, entry_id)
+    relay = next(
+        (
+            ed
+            for other_id, ed in hass.data.get(DOMAIN, {}).get("entries", {}).items()
+            if other_id != entry_id
+            and ed["connection"].state == ConnectionState.CONNECTED
+        ),
+        None,
+    )
+    if node_id is None or relay is None:
+        _LOGGER.warning(
+            "Radio %s looks stuck but can't be rebooted over the mesh: %s",
+            entry.title,
+            "its node ID is unknown" if node_id is None else "no other radio is connected",
+        )
+        return
+
+    async def _reboot() -> None:
+        _LOGGER.warning(
+            "Radio %s (%s) stopped advertising over Bluetooth; asking it to reboot via %s",
+            entry.title,
+            node_id,
+            relay["title"],
+        )
+        try:
+            await relay["connection"].async_remote_reboot(node_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Reboot request to %s failed", node_id)
+            return
+        connection.last_recovery = (
+            f"Sent a reboot over the mesh via {relay['title']} at "
+            f"{dt_util.now().strftime('%H:%M')}"
+        )
+
+    hass.async_create_task(_reboot())
 
 
 def _handle_unsent_packets(

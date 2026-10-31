@@ -749,3 +749,48 @@ class TestBleConnection:
         conn._attempt_in_progress = True
 
         assert await conn.async_force_reconnect() is False
+
+    def _silent_ble_conn(self, monkeypatch, advert_time):
+        from types import SimpleNamespace
+
+        hass = MagicMock()
+        conn = connection_mod.MeshtasticConnection(
+            hass, connection_mod.ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
+        )
+        info = None if advert_time is None else SimpleNamespace(time=advert_time)
+        monkeypatch.setattr(
+            connection_mod,
+            "bluetooth",
+            SimpleNamespace(async_last_service_info=lambda *a, **k: info),
+        )
+        conn._set_state(connection_mod.ConnectionState.CONNECTED)
+        conn._set_state(connection_mod.ConnectionState.RECONNECTING)
+        return conn
+
+    def test_radio_that_advertised_since_drop_is_not_silent(self, monkeypatch):
+        import time
+
+        conn = self._silent_ble_conn(monkeypatch, advert_time=time.monotonic() + 1)
+        assert conn.ble_silent_for() is None
+
+    def test_silent_radio_is_reported_stuck_once(self, monkeypatch):
+        conn = self._silent_ble_conn(monkeypatch, advert_time=None)
+        conn._link_lost_at -= connection_mod.BLE_STUCK_AFTER + 1
+        stuck = MagicMock()
+        conn.register_stuck_callback(stuck)
+
+        conn._check_ble_silence()
+        conn._check_ble_silence()
+
+        assert "has not advertised over Bluetooth" in conn.last_error
+        stuck.assert_called_once()
+
+    def test_briefly_silent_radio_is_not_reported(self, monkeypatch):
+        conn = self._silent_ble_conn(monkeypatch, advert_time=None)
+        stuck = MagicMock()
+        conn.register_stuck_callback(stuck)
+
+        conn._check_ble_silence()
+
+        stuck.assert_not_called()
+        assert conn.last_error is None

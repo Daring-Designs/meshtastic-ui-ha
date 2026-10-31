@@ -53,6 +53,9 @@ WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
 WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
 BLE_HEARTBEAT_INTERVAL = 25  # seconds between BLE heartbeats
 SEND_RECONNECT_WAIT = 45    # seconds a send waits for a reconnect in progress
+BLE_SILENT_WARN = 90        # seconds without advertisements before calling a radio silent
+BLE_STUCK_AFTER = 300       # seconds of silence before reporting the radio stuck
+BLE_STUCK_REPORT_INTERVAL = 1800  # at most one stuck report per this many seconds
 
 
 def _is_repeated(field: Any) -> bool:
@@ -644,6 +647,10 @@ class MeshtasticConnection:
         self._last_activity_time: float = 0.0
         self._connected_event = asyncio.Event()
         self._last_error: str | None = None
+        self.last_recovery: str | None = None  # what was done about a stuck radio
+        self._link_lost_at: float | None = None  # monotonic time the link dropped
+        self._last_stuck_report: float | None = None
+        self._stuck_callbacks: list[Callable] = []
         self._next_retry_at: float | None = None  # time.time() of the next attempt
 
         self._message_callbacks: list[Callable] = []
@@ -727,6 +734,63 @@ class MeshtasticConnection:
             return dict(self._interface.metadata or {})
         except Exception:  # noqa: BLE001
             return {}
+
+    def register_stuck_callback(self, callback: Callable) -> Callable:
+        """Register a callback for a BLE radio that stopped advertising. Returns unsubscribe callable."""
+        self._stuck_callbacks.append(callback)
+        return lambda: self._stuck_callbacks.remove(callback)
+
+    def ble_silent_for(self) -> float | None:
+        """Return seconds a dropped BLE radio has gone without advertising.
+
+        None when the radio isn't BLE, the link is up, or Home Assistant has
+        heard an advertisement from it since the link dropped. A radio that
+        never advertises again after a disconnect needs a reboot: firmware
+        2.8.x does not retry a failed advertising restart.
+        """
+        if (
+            self._connection_type != ConnectionType.BLE
+            or self._link_lost_at is None
+            or bluetooth is None
+        ):
+            return None
+        info = bluetooth.async_last_service_info(
+            self._hass, self._ble_address, connectable=True
+        )
+        if info is not None and info.time > self._link_lost_at:
+            return None
+        return time.monotonic() - self._link_lost_at
+
+    def _check_ble_silence(self) -> None:
+        """After a failed connect, explain a silent radio and report it if stuck."""
+        if self._link_lost_at is None:
+            # Never connected since startup: measure silence from the first failure.
+            self._link_lost_at = time.monotonic()
+        silent = self.ble_silent_for()
+        if silent is None or silent < BLE_SILENT_WARN:
+            return
+        self._last_error = (
+            f"The radio has not advertised over Bluetooth for {int(silent // 60) or 1} min. "
+            "Its Bluetooth is probably stuck (a known firmware issue); rebooting "
+            "the radio fixes it."
+        )
+        now = time.monotonic()
+        if silent < BLE_STUCK_AFTER or (
+            self._last_stuck_report is not None
+            and now - self._last_stuck_report < BLE_STUCK_REPORT_INTERVAL
+        ):
+            return
+        self._last_stuck_report = now
+        _LOGGER.warning(
+            "BLE radio %s has not advertised for %d seconds; it looks stuck",
+            self._ble_address,
+            silent,
+        )
+        for cb in self._stuck_callbacks:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Error in stuck radio callback")
 
     def register_unsent_callback(self, callback: Callable) -> Callable:
         """Register a callback for packet IDs lost when the link dropped. Returns unsubscribe callable."""
@@ -1288,6 +1352,22 @@ class MeshtasticConnection:
 
         await self._hass.async_add_executor_job(_delete)
 
+    async def async_remote_reboot(self, node_id: str, seconds: int = 5) -> None:
+        """Ask another node to reboot over the mesh.
+
+        Needs admin rights on that node: this radio's public key in its admin
+        keys, or a shared admin channel. Without them the node refuses.
+        """
+        if self._interface is None:
+            raise RuntimeError("Not connected to radio")
+
+        iface = self._interface
+
+        def _execute() -> None:
+            iface.getNode(node_id, requestChannels=False).reboot(seconds)
+
+        await self._hass.async_add_executor_job(_execute)
+
     async def async_node_admin(self, node_id: str, action: str) -> None:
         """Perform admin action on a remote node."""
         if self._interface is None:
@@ -1620,6 +1700,7 @@ class MeshtasticConnection:
                 raise
             except Exception as err:
                 self._last_error = _describe_connect_error(err, self._connection_type)
+                self._check_ble_silence()
                 next_delay = min(max(delay * 2, MIN_RECONNECT_DELAY), MAX_RECONNECT_DELAY)
                 _LOGGER.debug(
                     "Reconnect attempt failed (%s), next try in %d seconds",
@@ -1649,8 +1730,12 @@ class MeshtasticConnection:
         if new_state == ConnectionState.CONNECTED:
             self._connected_event.set()
             self._last_error = None
+            self._link_lost_at = None
+            self.last_recovery = None
         else:
             self._connected_event.clear()
+            if old_state == ConnectionState.CONNECTED:
+                self._link_lost_at = time.monotonic()
         if new_state in (ConnectionState.CONNECTED, ConnectionState.DISCONNECTED):
             self._next_retry_at = None
         if old_state != new_state:
