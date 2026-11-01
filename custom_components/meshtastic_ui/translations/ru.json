@@ -79,8 +79,7 @@
         "data": {
           "monitored_nodes": "Узлы",
           "enable_bluetooth": "Включить обнаружение и сканирование Bluetooth",
-          "ble_pin": "PIN-код сопряжения Bluetooth",
-          "auto_reboot_stuck": "Перезагружать радио через mesh-сеть, если его Bluetooth зависает (нужно другое подключённое радио с правами администратора на этом)"
+          "ble_pin": "PIN-код сопряжения Bluetooth"
         }
       }
     },

@@ -79,8 +79,7 @@
         "data": {
           "monitored_nodes": "Nodes",
           "enable_bluetooth": "Enable Bluetooth discovery and scanning",
-          "ble_pin": "Bluetooth Pairing PIN",
-          "auto_reboot_stuck": "Reboot the radio over the mesh if its Bluetooth gets stuck (needs another connected radio with admin rights on this one)"
+          "ble_pin": "Bluetooth Pairing PIN"
         }
       }
     },

@@ -1502,8 +1502,7 @@ class MeshtasticUiPanel extends LitElement {
       ? t("radio.connection.last_error", { error: lastError })
       : t("radio.connection.connect_title");
 
-    const lastRecovery = !isConnected ? activeRadio?.last_recovery : null;
-    let statusNote = this._connectNote || lastRecovery || "";
+    let statusNote = this._connectNote || "";
     if (!statusNote && trying && !attemptRunning && activeRadio?.next_retry_in != null) {
       statusNote = t("radio.connection.retry_in", { seconds: activeRadio.next_retry_in });
     }

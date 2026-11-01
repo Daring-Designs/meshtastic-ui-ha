@@ -25,7 +25,6 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
-    CONF_AUTO_REBOOT_STUCK,
     CONF_BLE_ADDRESS,
     CONF_BLE_PIN,
     CONF_CONNECTION_TYPE,
@@ -978,10 +977,4 @@ class MeshtasticUiOptionsFlow(OptionsFlow):
                 entry.data.get(CONF_BLE_PIN, DEFAULT_BLE_PIN),
             )
             schema_dict[vol.Required(CONF_BLE_PIN, default=current_pin)] = str
-            schema_dict[
-                vol.Required(
-                    CONF_AUTO_REBOOT_STUCK,
-                    default=entry.options.get(CONF_AUTO_REBOOT_STUCK, False),
-                )
-            ] = bool
         return vol.Schema(schema_dict)

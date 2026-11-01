@@ -215,7 +215,6 @@ async def ws_radios(
             "last_error": conn.last_error if conn is not None else None,
             "next_retry_in": conn.next_retry_in if conn is not None else None,
             "attempt_in_progress": conn.attempt_in_progress if conn is not None else False,
-            "last_recovery": conn.last_recovery if conn is not None else None,
         })
     connection.send_result(msg["id"], {"radios": radios})
 
