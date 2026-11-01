@@ -644,6 +644,11 @@ def _register_radio_callbacks(
         )
     )
     unsub_callbacks.append(
+        connection.register_config_complete_callback(
+            lambda: _sync_nodes_from_radio(hass, entry_id, store, connection)
+        )
+    )
+    unsub_callbacks.append(
         connection.register_stuck_callback(
             lambda: _handle_stuck_radio(hass, entry_id, connection)
         )

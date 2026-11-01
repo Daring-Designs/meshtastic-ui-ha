@@ -343,6 +343,14 @@ class MeshtasticUiPanel extends LitElement {
       }
     }
     this._updateRadioUnreadSummary();
+    // After an HA restart or BLE reconnect the panel can load while the radio
+    // is still sending its config, leaving channel names and nodes empty.
+    // Reload them once the radio has reported its channels.
+    const active = this._radios.find((r) => r.radio_id === this._selectedRadioId);
+    if (active?.state === "connected" && !this._gateways.some((g) => g.channels?.length)) {
+      await this._loadGateways();
+      if (this._gateways.some((g) => g.channels?.length)) await this._loadNodes();
+    }
   }
 
   async _switchRadio(radioId) {

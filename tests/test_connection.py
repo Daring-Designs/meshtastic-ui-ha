@@ -469,6 +469,71 @@ class TestBleConnection:
         assert len(handled_packets) == 1
         assert handled_packets[0] == b"\x08\x01"
 
+    def test_config_complete_notifies_when_already_connected(self):
+        """A BLE link is CONNECTED before its config arrives; config complete must still notify."""
+        hass = MagicMock()
+        conn = MeshtasticConnection(
+            hass, ConnectionType.BLE, ble_address="AA:BB:CC:DD:EE:FF"
+        )
+        conn._start_watchdog = MagicMock()
+        conn._set_state(connection_mod.ConnectionState.CONNECTED)
+        calls = []
+        unsub = conn.register_config_complete_callback(lambda: calls.append(1))
+
+        conn._async_handle_connected()
+        assert calls == [1]
+
+        unsub()
+        conn._async_handle_connected()
+        assert calls == [1]
+
+    def test_ble_config_complete_reaches_manager(self):
+        """BLE sets isConnected early, so config complete must be reported by the interface itself."""
+        hass = MagicMock()
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface.isConnected.set()  # as async_connect leaves it
+        ble_iface._localChannels = []
+        calls = []
+        ble_iface.on_config_complete = lambda: calls.append(1)
+
+        ble_iface._handleConfigComplete()
+        assert calls == [1]
+
+    async def test_ble_fromnum_notifies_coalesce_behind_read_lock(self):
+        """A burst of FROMNUM notifies queues one drain, so writes aren't starved."""
+        import asyncio
+        hass = MagicMock()
+        ble_iface = connection_mod.HomeAssistantBLEInterface(hass, "AA:BB:CC:DD:EE:FF")
+        ble_iface._link_up = True
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        reads = 0
+
+        async def mock_read(char_uuid):
+            nonlocal reads
+            reads += 1
+            return b""
+
+        mock_client.read_gatt_char = mock_read
+        ble_iface.client = mock_client
+        tasks = []
+        ble_iface._create_bg_task = lambda coro, name: tasks.append(asyncio.ensure_future(coro))
+
+        async with ble_iface._read_lock:  # e.g. the config replay drain
+            for _ in range(200):
+                ble_iface._on_fromnum_notify(None, bytearray(b"\x01\x00\x00\x00"))
+            await asyncio.sleep(0)
+            assert len(tasks) == 1
+
+        await asyncio.gather(*tasks)
+        assert reads == 4  # one drain: max_empty_retries=3 plus the first read
+        assert not ble_iface._notify_read_queued
+
+        # Once that drain is done, the next notify starts a new one
+        ble_iface._on_fromnum_notify(None, bytearray(b"\x02\x00\x00\x00"))
+        assert len(tasks) == 2
+        await tasks[1]
+
     async def test_ble_interface_async_close_cancels_tasks(self):
         """Test that async_close cancels both send and heartbeat tasks."""
         import asyncio

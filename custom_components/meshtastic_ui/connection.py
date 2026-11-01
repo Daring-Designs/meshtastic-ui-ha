@@ -231,9 +231,12 @@ class HomeAssistantBLEInterface(MeshInterface):
         self._in_flight: bytes | None = None  # being written, not yet confirmed
         # Called with the packet IDs of mesh packets that never reached the radio.
         self.on_unsent: Callable[[list[int]], None] | None = None
+        # Called when the radio finishes sending its config (node DB, channels).
+        self.on_config_complete: Callable[[], None] | None = None
         self._send_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._read_lock = asyncio.Lock()
+        self._notify_read_queued = False  # a FROMNUM drain is waiting for the read lock
 
     async def async_connect(self) -> None:
         """Establish BLE connection via Home Assistant's bluetooth manager."""
@@ -316,6 +319,7 @@ class HomeAssistantBLEInterface(MeshInterface):
                 )
 
         self._link_up = True
+        self._notify_read_queued = False
         self.isConnected.set()
 
         # Subscribe to FROMNUM notifications. If this fails the link is open
@@ -410,10 +414,29 @@ class HomeAssistantBLEInterface(MeshInterface):
         if packet_ids:
             self.on_unsent(packet_ids)
 
+    def _handleConfigComplete(self) -> None:
+        """Finish the config handshake and tell the connection manager.
+
+        async_connect sets isConnected as soon as the link is up, so the
+        library's _connected() never publishes connection.established for BLE.
+        """
+        if MeshInterface is not object:
+            super()._handleConfigComplete()
+        if self.on_config_complete is not None:
+            self.on_config_complete()
+
     def _on_fromnum_notify(self, characteristic: Any, data: bytearray) -> None:
-        """Handle FROMNUM notify indicating the radio has packet data waiting."""
+        """Handle FROMNUM notify indicating the radio has packet data waiting.
+
+        A drain reads every packet waiting, so one queued drain covers any number
+        of notifies. Spawning one per notify piles hundreds up behind the read lock
+        after a config replay, and the send loop waits behind all of them.
+        """
+        if self._notify_read_queued:
+            return
+        self._notify_read_queued = True
         self._create_bg_task(
-            self._read_from_radio(max_empty_retries=3),
+            self._read_from_radio(max_empty_retries=3, from_notify=True),
             f"meshtastic_ble_read_{self._address}",
         )
 
@@ -429,11 +452,19 @@ class HomeAssistantBLEInterface(MeshInterface):
         except Exception:
             pass
 
-    async def _read_from_radio(self, max_empty_retries: int = 1) -> None:
+    async def _read_from_radio(
+        self, max_empty_retries: int = 1, from_notify: bool = False
+    ) -> None:
         """Read pending packets from FROMRADIO GATT characteristic."""
         if not self._link_up or not self.client or not self.client.is_connected:
+            if from_notify:
+                self._notify_read_queued = False
             return
         async with self._read_lock:
+            if from_notify:
+                # Clear on acquiring, not on exit: this drain may already be past
+                # a packet announced from here on, so that notify needs a new one.
+                self._notify_read_queued = False
             empty_count = 0
             while self._link_up and self.client and self.client.is_connected:
                 try:
@@ -657,6 +688,7 @@ class MeshtasticConnection:
         self._node_update_callbacks: list[Callable] = []
         self._connection_change_callbacks: list[Callable] = []
         self._unsent_callbacks: list[Callable] = []
+        self._config_complete_callbacks: list[Callable] = []
         self._pubsub_listeners: list[Any] = []
 
     @property
@@ -796,6 +828,19 @@ class MeshtasticConnection:
         """Register a callback for packet IDs lost when the link dropped. Returns unsubscribe callable."""
         self._unsent_callbacks.append(callback)
         return lambda: self._unsent_callbacks.remove(callback)
+
+    def register_config_complete_callback(self, callback: Callable) -> Callable:
+        """Register a callback for when the radio finishes sending its config. Returns unsubscribe callable."""
+        self._config_complete_callbacks.append(callback)
+        return lambda: self._config_complete_callbacks.remove(callback)
+
+    def _async_dispatch_config_complete(self) -> None:
+        """Dispatch config download completion to callbacks (runs on HA event loop)."""
+        for cb in self._config_complete_callbacks:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Error in config complete callback")
 
     def _async_dispatch_unsent(self, packet_ids: list[int]) -> None:
         """Dispatch lost packet IDs to callbacks (runs on HA event loop)."""
@@ -1506,6 +1551,7 @@ class MeshtasticConnection:
                     pin=self._ble_pin,
                 )
                 ble_iface.on_unsent = self._async_dispatch_unsent
+                ble_iface.on_config_complete = self._async_dispatch_config_complete
                 await ble_iface.async_connect()
                 new_iface = ble_iface
             else:
@@ -1639,9 +1685,14 @@ class MeshtasticConnection:
                 _LOGGER.exception("Error in node update callback")
 
     def _async_handle_connected(self) -> None:
-        """Handle connection established (runs on HA event loop)."""
+        """Handle connection established (runs on HA event loop).
+
+        The meshtastic library fires this once the config download completes.
+        BLE reports that through on_config_complete instead.
+        """
         self._set_state(ConnectionState.CONNECTED)
         self._start_watchdog()
+        self._async_dispatch_config_complete()
 
     def _async_handle_disconnected(self) -> None:
         """Handle connection lost — start reconnect loop (runs on HA event loop)."""
