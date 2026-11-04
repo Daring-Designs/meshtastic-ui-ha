@@ -789,6 +789,19 @@ export default {
       in_progress: "Reconnecting…",
       button: "Reconnect"
     },
+    connection: {
+      connect: "Connect",
+      connecting: "Connecting…",
+      disconnect: "Disconnect",
+      disconnecting: "Disconnecting…",
+      connect_title: "Connect to radio",
+      disconnect_title: "Disconnect radio",
+      retry_now: "Retry now",
+      retry_in: "Retrying in {seconds}s",
+      attempt_running: "Already trying to connect…",
+      last_error: "Last attempt failed: {error}",
+      not_reachable: "Not reachable"
+    },
     metrics: {
       title: "Metrics",
       battery: "Battery",
