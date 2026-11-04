@@ -805,6 +805,37 @@ class TestBleConnection:
         assert conn.last_error is None
         assert conn.next_retry_in is None
 
+    @pytest.mark.parametrize(
+        ("conn_type", "kwargs", "cap"),
+        [
+            ("BLE", {"ble_address": "AA:BB:CC:DD:EE:FF"}, 5),
+            ("TCP", {"hostname": "192.0.2.1"}, 300),
+        ],
+    )
+    async def test_reconnect_backoff_cap(self, monkeypatch, conn_type, kwargs, cap):
+        """BLE retries keep coming every 5 s; other links back off to 5 minutes."""
+        hass = MagicMock()
+        conn = connection_mod.MeshtasticConnection(
+            hass, getattr(connection_mod.ConnectionType, conn_type), **kwargs
+        )
+        delays = []
+
+        async def _sleep(delay):
+            delays.append(delay)
+            if len(delays) >= 10:
+                conn._set_state(connection_mod.ConnectionState.CONNECTED)
+
+        async def _fail(gen):
+            raise TimeoutError("Failed to connect")
+
+        monkeypatch.setattr(connection_mod.asyncio, "sleep", _sleep)
+        monkeypatch.setattr(conn, "_async_safe_create_interface", _fail)
+        conn._set_state(connection_mod.ConnectionState.RECONNECTING)
+        await conn._async_reconnect_loop(gen=0)
+
+        assert delays[:4] == [min(d, cap) for d in (5, 10, 20, 40)]
+        assert max(delays) == cap
+
     async def test_force_reconnect_reports_attempt_in_progress(self):
         hass = MagicMock()
         conn = connection_mod.MeshtasticConnection(

@@ -48,6 +48,10 @@ _UUID_RE = re.compile(
 
 MIN_RECONNECT_DELAY = 5
 MAX_RECONNECT_DELAY = 300  # 5 minutes
+# A BLE radio in range can miss connect requests for minutes at a time, and
+# each failed attempt already spends up to a minute trying. Waiting 5 minutes
+# between attempts on top of that turns a short bad stretch into a long outage.
+BLE_MAX_RECONNECT_DELAY = 5
 WATCHDOG_INTERVAL = 60    # seconds between liveness checks
 WATCHDOG_TIMEOUT = 30     # seconds to wait for a liveness probe
 WATCHDOG_THRESHOLD = 300  # seconds of inactivity before a deeper probe
@@ -1671,7 +1675,12 @@ class MeshtasticConnection:
                 raise
             except Exception as err:
                 self._last_error = _describe_connect_error(err, self._connection_type)
-                next_delay = min(max(delay * 2, MIN_RECONNECT_DELAY), MAX_RECONNECT_DELAY)
+                max_delay = (
+                    BLE_MAX_RECONNECT_DELAY
+                    if self._connection_type == ConnectionType.BLE
+                    else MAX_RECONNECT_DELAY
+                )
+                next_delay = min(max(delay * 2, MIN_RECONNECT_DELAY), max_delay)
                 _LOGGER.debug(
                     "Reconnect attempt failed (%s), next try in %d seconds",
                     err,
