@@ -1,1 +1,1 @@
-export { LitElement, html, css } from "lit-element";
+export { LitElement, html, css, svg } from "lit-element";
