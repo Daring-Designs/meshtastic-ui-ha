@@ -41,6 +41,7 @@ from .const import (
     TS_MAX_POINTS,
     TS_PERSIST_SECONDS,
 )
+from .ble_channels import BleChannelManager
 from .entity import monitored_node_ids, node_device_identifier
 from .frontend import async_register_panel, async_unregister_panel
 from .services import async_setup_services
@@ -243,6 +244,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if is_first_entry:
         async_register_websocket_api(hass)
         await async_register_panel(hass)
+        # The host adapter's channel setting is shared by every radio.
+        ble_channels = BleChannelManager(hass)
+        hass.data[DOMAIN]["ble_channels"] = ble_channels
+        hass.async_create_task(ble_channels.async_setup())
 
     # One-time migration: pre-multi-radio releases used a global unique_id
     # (meshtastic_ui_messages_today / meshtastic_ui_active_nodes) for the
@@ -413,6 +418,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Only unregister the panel when the last entry is gone.
     if not entries:
         async_unregister_panel(hass)
+        if (ble_channels := domain_data.pop("ble_channels", None)) is not None:
+            ble_channels.async_teardown()
 
     return unload_ok
 

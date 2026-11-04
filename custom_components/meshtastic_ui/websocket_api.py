@@ -21,6 +21,7 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 
+from .ble_channels import MODES as BLE_CHANNEL_MODES, WifiUnavailableError
 from .connection import ConnectionType, MeshtasticConnection
 from .const import (
     CONF_BLE_ADDRESS,
@@ -78,6 +79,9 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_clear_messages)
     async_register_command(hass, ws_clear_nodes)
     async_register_command(hass, ws_clear_all)
+    async_register_command(hass, ws_get_ble_channels)
+    async_register_command(hass, ws_set_ble_channels)
+    async_register_command(hass, ws_scan_wifi)
 
 
 def _get_entries(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -1382,3 +1386,92 @@ async def ws_clear_all(
     store = _get_store(hass, msg.get("radio_id"))
     counts = store.clear_all()
     connection.send_result(msg["id"], counts)
+
+
+# ── Bluetooth channel avoidance ─────────────────────────────────────────
+
+
+def _ble_channels(hass: HomeAssistant, connection: ActiveConnection, msg_id: int) -> Any:
+    manager = hass.data.get(DOMAIN, {}).get("ble_channels")
+    if manager is None:
+        connection.send_error(msg_id, "not_ready", "Meshtastic UI is not set up")
+    return manager
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/get_ble_channels",
+        vol.Optional("radio_id"): vol.Any(str, None),
+    }
+)
+@async_response
+async def ws_get_ble_channels(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return the host adapter's channel setting and the known 2.4 GHz neighbours."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    connection.send_result(msg["id"], await manager.async_state())
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/set_ble_channels",
+        vol.Optional("radio_id"): vol.Any(str, None),
+        vol.Optional("adapter"): vol.Match(r"^hci\d+$"),
+        vol.Optional("mode"): vol.In(BLE_CHANNEL_MODES),
+        vol.Optional("manual_channels"): vol.All(
+            [vol.All(vol.Coerce(int), vol.Range(min=0, max=36))], vol.Unique()
+        ),
+        vol.Optional("wifi_manual"): [
+            {
+                vol.Required("ssid"): vol.All(str, vol.Length(max=64)),
+                vol.Required("channel"): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional("width", default=20): vol.In([20, 40]),
+            }
+        ],
+    }
+)
+@websocket_api.require_admin
+@async_response
+async def ws_set_ble_channels(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Change which channels the host adapter's Bluetooth links may use."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    changes = {
+        k: msg[k] for k in ("adapter", "mode", "manual_channels", "wifi_manual") if k in msg
+    }
+    try:
+        await manager.async_update(changes)
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], await manager.async_state())
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/scan_wifi",
+        vol.Optional("radio_id"): vol.Any(str, None),
+    }
+)
+@websocket_api.require_admin
+@async_response
+async def ws_scan_wifi(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Scan for nearby Wi-Fi networks, switching the radio on only for the scan."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    try:
+        await manager.async_scan_wifi()
+    except WifiUnavailableError as err:
+        connection.send_error(msg["id"], "wifi_unavailable", str(err))
+        return
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Wi-Fi scan failed")
+        connection.send_error(msg["id"], "scan_failed", "Wi-Fi scan failed")
+        return
+    connection.send_result(msg["id"], await manager.async_state())
