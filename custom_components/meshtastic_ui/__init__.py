@@ -244,7 +244,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if is_first_entry:
         async_register_websocket_api(hass)
         await async_register_panel(hass)
-        # The host adapter's channel setting is shared by every radio.
+
+    # The host adapter's channel setting is shared by every radio. HA sets up
+    # all radios at once and each can see itself as the first, so check for
+    # the manager itself; a second one would fight it over the channel map.
+    if "ble_channels" not in hass.data[DOMAIN]:
         ble_channels = BleChannelManager(hass)
         hass.data[DOMAIN]["ble_channels"] = ble_channels
         hass.async_create_task(ble_channels.async_setup())

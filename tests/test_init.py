@@ -388,6 +388,49 @@ class TestBleSetup:
             finally:
                 await async_unload_entry(hass, entry)
 
+    async def test_radios_set_up_together_share_one_channel_manager(self, hass: HomeAssistant):
+        """HA sets up all radios at once; a second manager would fight the first over the channel map."""
+        import asyncio
+
+        entries = [
+            MockConfigEntry(
+                domain=DOMAIN,
+                data={CONF_CONNECTION_TYPE: "ble", CONF_BLE_ADDRESS: addr},
+                unique_id=addr,
+                title=f"Meshtastic ({addr})",
+            )
+            for addr in ("AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02")
+        ]
+        for entry in entries:
+            entry.add_to_hass(hass)
+
+        manager_cls = MagicMock()
+        manager_cls.return_value.async_setup = AsyncMock()
+        original_load = MeshtasticUiStore.async_load
+
+        async def disk_load(self):
+            # On a real host the store load reads from disk and yields.
+            await asyncio.sleep(0)
+            return await original_load(self)
+
+        with (
+            patch.object(MeshtasticUiStore, "async_load", disk_load),
+            patch("custom_components.meshtastic_ui.BleChannelManager", manager_cls),
+            patch("custom_components.meshtastic_ui.connection.MeshtasticConnection.async_connect", new_callable=AsyncMock),
+            patch("custom_components.meshtastic_ui._sync_nodes_from_radio"),
+            patch("custom_components.meshtastic_ui.async_register_panel", new_callable=AsyncMock),
+            patch("custom_components.meshtastic_ui.async_unregister_panel"),
+            patch("custom_components.meshtastic_ui.async_register_websocket_api"),
+            patch("homeassistant.config_entries.ConfigEntries.async_forward_entry_setups", new_callable=AsyncMock, return_value=True),
+            patch("homeassistant.config_entries.ConfigEntries.async_unload_platforms", new_callable=AsyncMock, return_value=True),
+        ):
+            try:
+                await asyncio.gather(*(async_setup_entry(hass, e) for e in entries))
+                assert manager_cls.call_count == 1
+            finally:
+                for entry in entries:
+                    await async_unload_entry(hass, entry)
+
 
 class TestUpdateListener:
     """Entry updates reload only when connection settings change."""
