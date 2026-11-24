@@ -1,7 +1,7 @@
 {
   "domain": "meshtastic_ui",
   "name": "Meshtastic UI",
-  "after_dependencies": ["bluetooth", "bluetooth_adapters"],
+  "after_dependencies": ["bluetooth", "bluetooth_adapters", "mqtt", "thread", "zha"],
   "codeowners": ["@Daring-Designs"],
   "config_flow": true,
   "dependencies": ["websocket_api", "http", "frontend"],
