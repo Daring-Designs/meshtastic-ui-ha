@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -20,8 +21,10 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 
-from .connection import MeshtasticConnection
+from .ble_channels import MODES as BLE_CHANNEL_MODES, WifiUnavailableError
+from .connection import ConnectionType, MeshtasticConnection
 from .const import (
+    CONF_BLE_ADDRESS,
     CONF_MONITORED_NODES,
     DOMAIN,
     SIGNAL_DELIVERY_STATUS,
@@ -54,6 +57,7 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_subscribe_nodes)
     async_register_command(hass, ws_subscribe_delivery)
     async_register_command(hass, ws_reconnect)
+    async_register_command(hass, ws_disconnect)
     async_register_command(hass, ws_get_config)
     async_register_command(hass, ws_set_config)
     async_register_command(hass, ws_get_channels)
@@ -75,6 +79,9 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_clear_messages)
     async_register_command(hass, ws_clear_nodes)
     async_register_command(hass, ws_clear_all)
+    async_register_command(hass, ws_get_ble_channels)
+    async_register_command(hass, ws_set_ble_channels)
+    async_register_command(hass, ws_scan_wifi)
 
 
 def _get_entries(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -169,7 +176,11 @@ async def ws_radios(
             continue
         conn = data.get("connection")
         config = data.get("config", {})
-        address = config.get("tcp_hostname") or config.get("serial_dev_path")
+        address = (
+            config.get(CONF_BLE_ADDRESS)
+            or config.get("tcp_hostname")
+            or config.get("serial_dev_path")
+        )
 
         # Pull the radio's user-set name from the connected interface.
         long_name = None
@@ -179,6 +190,13 @@ async def ws_radios(
                 user = conn.my_info.get("user", {}) if conn.my_info else {}
                 long_name = user.get("longName")
                 short_name = user.get("shortName")
+                if (not long_name or not short_name) and conn.interface is not None:
+                    node_info = conn.interface.getMyNodeInfo() or {}
+                    hw = node_info.get("user", {})
+                    if not long_name:
+                        long_name = hw.get("longName")
+                    if not short_name:
+                        short_name = hw.get("shortName")
             except Exception:  # noqa: BLE001
                 pass
 
@@ -198,17 +216,37 @@ async def ws_radios(
             "connection_type": config.get("connection_type"),
             "address": address,
             "state": str(conn.state) if conn is not None else None,
+            "last_error": conn.last_error if conn is not None else None,
+            "next_retry_in": conn.next_retry_in if conn is not None else None,
+            "attempt_in_progress": conn.attempt_in_progress if conn is not None else False,
         })
     connection.send_result(msg["id"], {"radios": radios})
+
+
+_MAC_COLON_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+_MAC_HYPHEN_RE = re.compile(r"^([0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}$")
+_MAC_DOT_RE = re.compile(r"^([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}$")
+_MAC_BARE_RE = re.compile(r"^[0-9a-fA-F]{12}$")
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def _format_address_last4(address: str | None) -> str | None:
     """Return the last 4 hex chars of a MAC-like address as 'xx:xx', else None."""
     if not address:
         return None
-    hex_only = address.lower().replace(":", "").replace("-", "")
-    # Only return last4 if the address looks like a MAC (12 hex chars).
-    if len(hex_only) >= 12 and all(c in "0123456789abcdef" for c in hex_only[-12:]):
+    cleaned = address.strip()
+    if _UUID_RE.match(cleaned):
+        hex_only = cleaned.lower().replace("-", "")
+        return f"{hex_only[-4:-2]}:{hex_only[-2:]}"
+    if (
+        _MAC_COLON_RE.match(cleaned)
+        or _MAC_HYPHEN_RE.match(cleaned)
+        or _MAC_DOT_RE.match(cleaned)
+        or _MAC_BARE_RE.match(cleaned)
+    ):
+        hex_only = cleaned.lower().replace(":", "").replace("-", "").replace(".", "")
         return f"{hex_only[-4:-2]}:{hex_only[-2:]}"
     return None
 
@@ -246,6 +284,7 @@ async def ws_gateways(
         name = user["longName"]
     if user.get("hwModel"):
         model = user["hwModel"]
+    short_name = user.get("shortName")
 
     # Metadata from the device.
     if meta.get("firmwareVersion"):
@@ -285,8 +324,12 @@ async def ws_gateways(
         try:
             node_info = iface.getMyNodeInfo()
             if node_info:
-                # Try to get serial number.
                 hw = node_info.get("user", {})
+                if not short_name and hw.get("shortName"):
+                    short_name = hw["shortName"]
+                if name == "Meshtastic Radio" and hw.get("longName"):
+                    name = hw["longName"]
+                # Try to get serial number.
                 if hw.get("macaddr"):
                     serial = hw["macaddr"]
         except Exception:  # noqa: BLE001
@@ -332,11 +375,22 @@ async def ws_gateways(
         except Exception:  # noqa: BLE001
             pass
 
+    config = entry_data.get("config", {})
+    connection_type = config.get("connection_type")
+    address = (
+        config.get(CONF_BLE_ADDRESS)
+        or config.get("tcp_hostname")
+        or config.get("serial_dev_path")
+    )
+
     gateways.append(
         {
             "entity_id": None,
             "radio_id": entry_data.get("entry_id") if entry_data else None,
             "name": name,
+            "short_name": short_name,
+            "address": address,
+            "connection_type": connection_type,
             "state": state,
             "model": model,
             "firmware": firmware,
@@ -582,7 +636,13 @@ async def ws_send_message(
         # Any send failure on a radio means the link is unreliable right now —
         # kick a forced reconnect so the next attempt has a fresh interface.
         err_text = str(err) or err.__class__.__name__
-        if looks_like_link_down(err):
+        # For BLE radios, never force reconnect on send failures — BlueZ handles
+        # disconnects natively via _on_ble_disconnected, and triggering a full
+        # reconnect loop disrupts active GATT handshakes.
+        if (
+            looks_like_link_down(err)
+            and getattr(conn, "_connection_type", None) != ConnectionType.BLE
+        ):
             _LOGGER.warning(
                 "Send failed for radio %s (link likely down: %s) — forcing reconnect",
                 entry_id_for_dispatch, err_text,
@@ -1178,11 +1238,37 @@ async def ws_reconnect(
         return
     conn = _get_connection(hass, msg.get("radio_id"))
     try:
-        await conn.async_force_reconnect()
-        connection.send_result(msg["id"], {"success": True})
+        started = await conn.async_force_reconnect()
+        # False: a connect attempt is already running, so the click did nothing.
+        connection.send_result(
+            msg["id"], {"success": True, "in_progress": started is False}
+        )
     except Exception:  # noqa: BLE001
         _LOGGER.exception("Force reconnect failed")
         connection.send_error(msg["id"], "reconnect_failed", "Operation failed")
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/disconnect",
+        vol.Optional("radio_id"): vol.Any(str, None),
+    }
+)
+@async_response
+async def ws_disconnect(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Disconnect from the radio and stop reconnection attempts."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin access required")
+        return
+    conn = _get_connection(hass, msg.get("radio_id"))
+    try:
+        await conn.async_disconnect()
+        connection.send_result(msg["id"], {"success": True})
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Disconnect failed")
+        connection.send_error(msg["id"], "disconnect_failed", "Operation failed")
 
 @websocket_command(
     {
@@ -1300,3 +1386,92 @@ async def ws_clear_all(
     store = _get_store(hass, msg.get("radio_id"))
     counts = store.clear_all()
     connection.send_result(msg["id"], counts)
+
+
+# ── Bluetooth channel avoidance ─────────────────────────────────────────
+
+
+def _ble_channels(hass: HomeAssistant, connection: ActiveConnection, msg_id: int) -> Any:
+    manager = hass.data.get(DOMAIN, {}).get("ble_channels")
+    if manager is None:
+        connection.send_error(msg_id, "not_ready", "Meshtastic UI is not set up")
+    return manager
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/get_ble_channels",
+        vol.Optional("radio_id"): vol.Any(str, None),
+    }
+)
+@async_response
+async def ws_get_ble_channels(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return the host adapter's channel setting and the known 2.4 GHz neighbours."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    connection.send_result(msg["id"], await manager.async_state())
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/set_ble_channels",
+        vol.Optional("radio_id"): vol.Any(str, None),
+        vol.Optional("adapter"): vol.Match(r"^hci\d+$"),
+        vol.Optional("mode"): vol.In(BLE_CHANNEL_MODES),
+        vol.Optional("manual_channels"): vol.All(
+            [vol.All(vol.Coerce(int), vol.Range(min=0, max=36))], vol.Unique()
+        ),
+        vol.Optional("wifi_manual"): [
+            {
+                vol.Required("ssid"): vol.All(str, vol.Length(max=64)),
+                vol.Required("channel"): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional("width", default=20): vol.In([20, 40]),
+            }
+        ],
+    }
+)
+@websocket_api.require_admin
+@async_response
+async def ws_set_ble_channels(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Change which channels the host adapter's Bluetooth links may use."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    changes = {
+        k: msg[k] for k in ("adapter", "mode", "manual_channels", "wifi_manual") if k in msg
+    }
+    try:
+        await manager.async_update(changes)
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], await manager.async_state())
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{WS_PREFIX}/scan_wifi",
+        vol.Optional("radio_id"): vol.Any(str, None),
+    }
+)
+@websocket_api.require_admin
+@async_response
+async def ws_scan_wifi(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Scan for nearby Wi-Fi networks, switching the radio on only for the scan."""
+    if (manager := _ble_channels(hass, connection, msg["id"])) is None:
+        return
+    try:
+        await manager.async_scan_wifi()
+    except WifiUnavailableError as err:
+        connection.send_error(msg["id"], "wifi_unavailable", str(err))
+        return
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Wi-Fi scan failed")
+        connection.send_error(msg["id"], "scan_failed", "Wi-Fi scan failed")
+        return
+    connection.send_result(msg["id"], await manager.async_state())

@@ -5,6 +5,7 @@ import {
 } from "./vendor/lit/lit-element.js";
 import "./components.js";
 import "./modules.js";
+import "./ble_channels.js";
 import {
   settingsStyles,
   formStyles,
@@ -160,6 +161,7 @@ const NAV_ITEMS = [
       { id: "network", labelKey: "settings.nav.network", icon: "mdi:wifi" },
       { id: "display", labelKey: "settings.nav.display", icon: "mdi:monitor" },
       { id: "bluetooth", labelKey: "settings.nav.bluetooth", icon: "mdi:bluetooth" },
+      { id: "ble_channels", labelKey: "settings.nav.ble_channels", icon: "mdi:sine-wave" },
       { id: "security", labelKey: "settings.nav.security", icon: "mdi:shield-lock" },
     ],
   },
@@ -356,6 +358,11 @@ export class MeshSettingsTab extends LitElement {
           .wsCommand=${(type, data) => this._ws(type, data)}
           @config-saved=${this._loadConfig}
         ></mesh-settings-bluetooth>`;
+      case "ble_channels":
+        return html`<mesh-settings-ble-channels
+          .hass=${this.hass}
+          .wsCommand=${(type, data) => this._ws(type, data)}
+        ></mesh-settings-ble-channels>`;
       case "security":
         return html`<mesh-settings-security
           .config=${this._config}

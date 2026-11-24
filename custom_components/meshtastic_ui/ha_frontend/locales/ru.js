@@ -599,6 +599,78 @@ export default {
         no_pin: "Без PIN"
       }
     },
+    ble_channels: {
+      title: "Каналы Bluetooth",
+      subtitle: "Уводит Bluetooth-соединения этого сервера Home Assistant с каналов 2,4 ГГц, занятых Wi-Fi, Zigbee и Thread. Настройка относится к Bluetooth-адаптеру сервера и действует на все подключённые через него BLE-радио.",
+      loading: "Загрузка сведений о каналах…",
+      request_failed: "Запрос не выполнен",
+      saved: "Настройки каналов сохранены и применены.",
+      apply_failed: "Сохранено, но адаптер отклонил карту каналов: {error}",
+      chart_label: "Занятость диапазона 2,4 ГГц и разрешённые каналы Bluetooth",
+      wifi_channel_axis: "Канал Wi-Fi",
+      chart_note: "Построено по сетям и устройствам из списков ниже, а не по замеру эфира. В ручном режиме нажмите на канал Bluetooth, чтобы разрешить или запретить его.",
+      ble_channel: "Канал Bluetooth {channel} ({freq} МГц)",
+      adv_channel: "Канал объявлений {channel} ({freq} МГц), используется всегда",
+      allowed: "разрешён",
+      blocked: "запрещён",
+      in_use_by: "Канал {channel} ({freq} МГц) использует {devices}",
+      legend: {
+        allowed: "Разрешён",
+        blocked: "Запрещён",
+        advertising: "Объявления (фиксированы)",
+        busy: "Загруженность",
+        in_use: "Канал использует подключённое Bluetooth-устройство (наведите, чтобы узнать какое)"
+      },
+      mode: {
+        title: "Выбор каналов",
+        auto: "Автоматически",
+        auto_desc: "Запрещать каналы, пересекающиеся с известными соседями, оставляя не меньше 8.",
+        manual: "Вручную",
+        manual_desc: "Выберите каналы сами на графике.",
+        off: "Выключено",
+        off_desc: "Разрешить все 37 каналов (как по умолчанию в Bluetooth)."
+      },
+      adapter: "Bluetooth-адаптер",
+      manual_hint: "Разрешено каналов: {count}. Нажимайте на каналы на графике, затем примените.",
+      few: "Разрешено только {count}. Рекомендуется не меньше {recommended}, чтобы соединение могло обходить помехи.",
+      too_few: "Разрешите хотя бы {min} канала.",
+      apply: "Применить",
+      use_auto: "Взять автоматический выбор",
+      allow_all: "Разрешить все",
+      status: {
+        title: "Состояние",
+        off: "Каналы не настраиваются. Адаптер работает по умолчанию.",
+        applied: "Разрешено {count} из 37 каналов на {adapter}, применено в {time}.",
+        link: "{device} подключено по Bluetooth и использует каналов: {count}:",
+        no_links: "Сейчас через этот адаптер не подключено ни одного Bluetooth-устройства."
+      },
+      wifi: {
+        title: "Сети Wi-Fi",
+        subtitle: "Сканирование включает Wi-Fi сервера на несколько секунд и снова выключает его, так как он делит эфир с Bluetooth.",
+        scan: "Сканировать",
+        scanning: "Сканирование…",
+        scan_done: "Найдено сетей в 2,4 ГГц: {count}.",
+        scan_failed: "Сканирование не удалось: {error}",
+        last_scan: "Последнее сканирование {time}: сетей {count}",
+        never: "Сканирования ещё не было",
+        network: "Сеть",
+        channel: "Канал",
+        width: "Ширина",
+        signal: "Сигнал",
+        channel_n: "Кан. {channel}",
+        manual_title: "Сети, добавленные вручную",
+        manual_subtitle: "Для сетей, которые сканирование не видит, или серверов без Wi-Fi.",
+        name_placeholder: "Имя сети",
+        add: "Добавить",
+        remove: "Удалить"
+      },
+      others: {
+        title: "Zigbee и Thread",
+        thread: "Сеть Thread на канале {channel}",
+        zigbee: "Сеть Zigbee на канале {channel} (из {source})",
+        none: "В Home Assistant не найдено сетей Zigbee или Thread."
+      }
+    },
     security: {
       admin_channel_index: "Индекс канала администратора",
       admin_channel_index_desc: "Индекс канала для административных сообщений (0 = основной)",
@@ -696,6 +768,7 @@ export default {
       network: "Сеть",
       display: "Экран",
       bluetooth: "Bluetooth",
+      ble_channels: "Каналы BLE",
       security: "Безопасность",
       mqtt: "MQTT",
       serial: "Последовательный порт",
@@ -790,6 +863,19 @@ export default {
       title: "Принудительно переподключиться к радио",
       in_progress: "Переподключение…",
       button: "Переподключить"
+    },
+    connection: {
+      connect: "Подключить",
+      connecting: "Подключение…",
+      disconnect: "Отключить",
+      disconnecting: "Отключение…",
+      connect_title: "Подключить радио",
+      disconnect_title: "Отключить радио",
+      retry_now: "Повторить",
+      retry_in: "Повтор через {seconds} с",
+      attempt_running: "Подключение уже выполняется…",
+      last_error: "Последняя попытка не удалась: {error}",
+      not_reachable: "Недоступно"
     },
     metrics: {
       title: "Метрики",

@@ -597,6 +597,78 @@ export default {
         no_pin: "No PIN"
       }
     },
+    ble_channels: {
+      title: "Bluetooth Channels",
+      subtitle: "Keep this Home Assistant host's Bluetooth links off 2.4 GHz channels that Wi-Fi, Zigbee and Thread use. This applies to the host's Bluetooth adapter, so it covers every BLE radio connected through it.",
+      loading: "Loading channel information…",
+      request_failed: "Request failed",
+      saved: "Channel settings saved and applied.",
+      apply_failed: "Saved, but the adapter refused the channel map: {error}",
+      chart_label: "2.4 GHz channel usage and the Bluetooth channels allowed",
+      wifi_channel_axis: "Wi-Fi channel",
+      chart_note: "Built from the networks and devices listed below, not a live radio measurement. In manual mode, click a Bluetooth channel to allow or block it.",
+      ble_channel: "Bluetooth channel {channel} ({freq} MHz)",
+      adv_channel: "Advertising channel {channel} ({freq} MHz), always used",
+      allowed: "allowed",
+      blocked: "blocked",
+      in_use_by: "Channel {channel} ({freq} MHz) is in use by {devices}",
+      legend: {
+        allowed: "Allowed",
+        blocked: "Blocked",
+        advertising: "Advertising (fixed)",
+        busy: "How busy",
+        in_use: "A connected Bluetooth device hops on this channel (hover for which)"
+      },
+      mode: {
+        title: "Channel selection",
+        auto: "Automatic",
+        auto_desc: "Block channels that overlap known neighbours, keeping at least 8.",
+        manual: "Manual",
+        manual_desc: "Pick the channels yourself on the chart.",
+        off: "Off",
+        off_desc: "Allow all 37 channels (Bluetooth's default)."
+      },
+      adapter: "Bluetooth adapter",
+      manual_hint: "{count} channels allowed. Click channels on the chart to change, then apply.",
+      few: "Only {count} channels allowed. At least {recommended} is recommended so links can still hop around interference.",
+      too_few: "Allow at least {min} channels.",
+      apply: "Apply",
+      use_auto: "Use automatic pick",
+      allow_all: "Allow all",
+      status: {
+        title: "Status",
+        off: "Not managing channels. The adapter uses its defaults.",
+        applied: "{count} of 37 channels allowed on {adapter}, last applied {time}.",
+        link: "{device} is connected over Bluetooth and hops on {count} channels:",
+        no_links: "No Bluetooth devices are connected through this adapter right now."
+      },
+      wifi: {
+        title: "Wi-Fi networks",
+        subtitle: "Scan turns the host's Wi-Fi radio on for a few seconds and off again, since it shares airtime with Bluetooth.",
+        scan: "Scan",
+        scanning: "Scanning…",
+        scan_done: "Found {count} networks on 2.4 GHz.",
+        scan_failed: "Scan failed: {error}",
+        last_scan: "Last scan {time}: {count} networks",
+        never: "Not scanned yet",
+        network: "Network",
+        channel: "Channel",
+        width: "Width",
+        signal: "Signal",
+        channel_n: "Ch {channel}",
+        manual_title: "Networks added by hand",
+        manual_subtitle: "For networks the scan can't see, or hosts without Wi-Fi.",
+        name_placeholder: "Network name",
+        add: "Add",
+        remove: "Remove"
+      },
+      others: {
+        title: "Zigbee and Thread",
+        thread: "Thread network on channel {channel}",
+        zigbee: "Zigbee network on channel {channel} (from {source})",
+        none: "No Zigbee or Thread networks found in Home Assistant."
+      }
+    },
     security: {
       admin_channel_index: "Admin Channel Index",
       admin_channel_index_desc: "Channel index used for admin messages (0 = primary)",
@@ -694,6 +766,7 @@ export default {
       network: "Network",
       display: "Display",
       bluetooth: "Bluetooth",
+      ble_channels: "BLE Channels",
       security: "Security",
       mqtt: "MQTT",
       serial: "Serial",
@@ -788,6 +861,19 @@ export default {
       title: "Force reconnect to radio",
       in_progress: "Reconnecting…",
       button: "Reconnect"
+    },
+    connection: {
+      connect: "Connect",
+      connecting: "Connecting…",
+      disconnect: "Disconnect",
+      disconnecting: "Disconnecting…",
+      connect_title: "Connect to radio",
+      disconnect_title: "Disconnect radio",
+      retry_now: "Retry now",
+      retry_in: "Retrying in {seconds}s",
+      attempt_running: "Already trying to connect…",
+      last_error: "Last attempt failed: {error}",
+      not_reachable: "Not reachable"
     },
     metrics: {
       title: "Metrics",
